@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>PDF Library Pro</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --muted: #64748b;
+      --primary: #2563eb; --border: #e2e8f0; --highlight: #fde047;
+      --reader-max: 720px; --line-height: 1.7; --font-size: 17px; --margin: 20px;
+    }
+    [data-theme="dark"] {
+      --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --muted: #94a3b8;
+      --primary: #3b82f6; --border: #334155; --highlight: #a16207;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+    }
+    header {
+      background: var(--card); border-bottom: 1px solid var(--border);
+      padding: 8px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; z-index: 50;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; white-space: nowrap; }
+    .controls { display: flex; gap: 5px; margin-left: auto; flex-wrap: wrap; }
+    button {
+      background: var(--primary); color: white; border: none;
+      padding: 7px 11px; border-radius: 8px; font-size: 0.85rem;
+      cursor: pointer; min-height: 38px;
+    }
+    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.45; }
+    .main { display: flex; flex: 1; overflow: hidden; position: relative; }
+    .sidebar {
+      width: 300px; background: var(--card); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; z-index: 40;
+    }
+    .sidebar-header { padding: 12px; border-bottom: 1px solid var(--border); }
+    .upload-zone {
+      border: 2px dashed var(--border); border-radius: 10px; padding: 16px;
+      text-align: center; cursor: pointer; color: var(--muted); font-size: 0.9rem;
+    }
+    .upload-zone:active { border-color: var(--primary); background: rgba(37,99,235,0.08); }
+    #fileInput { display: none; }
+    .lib-tools { padding: 8px 12px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+    .library-list { flex: 1; overflow-y: auto; padding: 8px; }
+    .doc-item {
+      padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 4px;
+      display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 0.9rem;
+    }
+    .doc-item.active, .doc-item:active { background: rgba(37,99,235,0.12); }
+    .doc-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .doc-actions { display: flex; gap: 4px; }
+    .doc-actions span { opacity: 0.6; padding: 2px 6px; font-size: 0.85rem; }
+    .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .toolbar {
+      padding: 8px 12px; background: var(--card); border-bottom: 1px solid var(--border);
+      display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    }
+    #searchInput {
+      flex: 1; min-width: 110px; padding: 8px 12px; border: 1px solid var(--border);
+      border-radius: 8px; background: var(--bg); color: var(--text); font-size: 0.95rem;
+    }
+    .reader-wrapper { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .reader {
+      max-width: var(--reader-max); margin: 0 auto; padding: var(--margin);
+      line-height: var(--line-height); font-size: var(--font-size);
+      white-space: pre-wrap; word-wrap: break-word;
+    }
+    .reader mark { background: var(--highlight); padding: 0 2px; border-radius: 2px; }
+    .reader mark.current { outline: 2px solid var(--primary); }
+    .page-marker {
+      display: block; margin: 1.8em 0 0.8em; padding-bottom: 5px;
+      font-size: 0.78rem; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--border);
+    }
+    .status-bar {
+      padding: 7px 14px; font-size: 0.8rem; color: var(--muted);
+      border-top: 1px solid var(--border); background: var(--card);
+      display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px;
+    }
+    .progress-bar-outer { height: 3px; background: var(--border); }
+    .progress-bar-outer > div { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s; }
+    body.focus-mode header, body.focus-mode .sidebar, body.focus-mode .toolbar { display: none !important; }
+    .menu-btn { display: none; }
+    @media (max-width: 768px) {
+      .sidebar {
+        position: absolute; left: 0; top: 0; bottom: 0;
+        transform: translateX(-100%); transition: transform 0.25s ease;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.18);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .menu-btn { display: inline-flex !important; }
+    }
+    .empty { text-align: center; padding: 50px 20px; color: var(--muted); line-height: 1.6; }
+    .settings-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 0.8rem; }
+    select, input[type="range"] {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px;
+    }
+    .modal-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100;
+      display: none; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-bg.show { display: flex; }
+    .modal {
+      background: var(--card); border-radius: 12px; padding: 20px; width: 100%; max-width: 400px;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .modal h3 { margin-bottom: 12px; }
+    .modal textarea, .modal input[type="text"] {
+      width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--bg); color: var(--text); margin-bottom: 12px; font-size: 1rem;
+    }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  </style>
+</head>
+<body>
+  <header>
+    <button class="menu-btn secondary" id="menuBtn">☰</button>
+    <h1>📚 PDF Library</h1>
+    <button id="headerUploadBtn">+ Upload</button>
+    <div class="controls">
+      <button class="secondary" id="focusBtn">Focus</button>
+      <button class="secondary" id="fontDown">A−</button>
+      <button class="secondary" id="fontUp">A+</button>
+      <button class="secondary" id="themeBtn">🌓</button>
+      <button id="ttsPlay">🔊</button>
+      <button class="secondary" id="ttsPause">⏸</button>
+      <button class="secondary" id="ttsStop">⏹</button>
+    </div>
+  </header>
+
+  <div class="progress-bar-outer"><div id="extractProgress"></div></div>
+
+  <div class="main">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="upload-zone" id="uploadZone">📄 Tap to upload PDF</div>
+        <input type="file" id="fileInput" accept="application/pdf" multiple />
+      </div>
+      <div class="lib-tools">
+        <select id="sortSelect" style="flex:1">
+          <option value="recent">Recently read</option>
+          <option value="name">Name</option>
+          <option value="date">Date added</option>
+        </select>
+        <button class="secondary" id="exportBtn" title="Export backup">⬆</button>
+        <button class="secondary" id="importBtn" title="Import backup">⬇</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" />
+      </div>
+      <div class="library-list" id="libraryList"></div>
+    </aside>
+
+    <div class="content-area">
+      <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="Search…" />
+        <button class="secondary" id="searchPrev">↑</button>
+        <button class="secondary" id="searchNext">↓</button>
+        <button class="secondary" id="clearSearch">Clear</button>
+        <button class="secondary" id="bookmarkBtn">🔖</button>
+        <button class="secondary" id="copyBtn">Copy</button>
+        <button class="secondary" id="notesBtn">Notes</button>
+        <div class="settings-row">
+          <label>Width
+            <select id="widthSelect">
+              <option value="560px">Narrow</option>
+              <option value="720px" selected>Normal</option>
+              <option value="900px">Wide</option>
+            </select>
+          </label>
+          <label>Space <input type="range" id="lineHeight" min="1.3" max="2.2" step="0.1" value="1.7" style="width:65px"></label>
+          <label>Size <input type="range" id="marginRange" min="12" max="40" step="4" value="20" style="width:65px"></label>
+        </div>
+      </div>
+
+      <div class="reader-wrapper" id="readerWrapper">
+        <div class="reader" id="reader">
+          <div class="empty">Tap <b>+ Upload</b> to add a PDF.<br>Your library stays on this device.</div>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <span id="status">Ready</span>
+        <span id="stats"></span>
+        <span id="progressPercent">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notes Modal -->
+  <div class="modal-bg" id="notesModal">
+    <div class="modal">
+      <h3>Notes</h3>
+      <textarea id="notesText" rows="6" placeholder="Write notes for this document…"></textarea>
+      <div class="modal-actions">
+        <button class="secondary" id="notesCancel">Cancel</button>
+        <button id="notesSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Modal -->
+  <div class="modal-bg" id="renameModal">
+    <div class="modal">
+      <h3>Rename</h3>
+      <input type="text" id="renameInput" />
+      <div class="modal-actions">
+        <button class="secondary" id="renameCancel">Cancel</button>
+        <button id="renameSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+
+    const DB_NAME = 'PDFLibraryDB', STORE = 'documents';
+    let library = [], currentId = null, currentText = '', fontSize = +(localStorage.getItem('fontSize')||17);
+    let searchMatches = [], currentMatch = -1, isSpeaking = false, autoScrollInterval = null;
+    let renameTargetId = null;
+
+    const $ = id => document.getElementById(id);
+    const reader = $('reader'), readerWrapper = $('readerWrapper');
+    const libraryList = $('libraryList'), statusEl = $('status');
+    const progressPercent = $('progressPercent'), extractProgress = $('extractProgress');
+    const searchInput = $('searchInput'), sidebar = $('sidebar');
+
+    // ===== IndexedDB =====
+    function openDB() {
+      return new Promise((res, rej) => {
+        const r = indexedDB.open(DB_NAME, 1);
+        r.onupgradeneeded = e => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+        };
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+    }
+    async function idbGetAll() {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const r = db.transaction(STORE,'readonly').objectStore(STORE).getAll();
+        r.onsuccess = () => res(r.result||[]);
+        r.onerror = () => rej(r.error);
+      });
+    }
+    async function idbPut(doc) {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).put(doc);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+    }
+    async function idbDelete(id) {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+    }
+
+    // ===== UI Basics =====
+    $('menuBtn').onclick = () => sidebar.classList.toggle('open');
+    $('themeBtn').onclick = () => {
+      const n = document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+      localStorage.setItem('theme', n);
+      document.documentElement.setAttribute('data-theme', n);
+    };
+    document.documentElement.setAttribute('data-theme', localStorage.getItem('theme')||'light');
+
+    function applyFont(){ document.documentElement.style.setProperty('--font-size', fontSize+'px'); localStorage.setItem('fontSize', fontSize); }
+    applyFont();
+    $('fontUp').onclick = () => { fontSize = Math.min(26, fontSize+1); applyFont(); };
+    $('fontDown').onclick = () => { fontSize = Math.max(13, fontSize-1); applyFont(); };
+    $('lineHeight').oninput = e => document.documentElement.style.setProperty('--line-height', e.target.value);
+    $('marginRange').oninput = e => document.documentElement.style.setProperty('--margin', e.target.value+'px');
+    $('widthSelect').onchange = e => document.documentElement.style.setProperty('--reader-max', e.target.value);
+    $('focusBtn').onclick = () => {
+      document.body.classList.toggle('focus-mode');
+      $('focusBtn').textContent = document.body.classList.contains('focus-mode') ? 'Exit' : 'Focus';
+    };
+
+    // ===== Upload (header button + sidebar) =====
+    $('uploadZone').onclick = () => $('fileInput').click();
+    $('headerUploadBtn').onclick = () => $('fileInput').click();
+    $('fileInput').onchange = e => handleFiles(e.target.files);
+
+    function cleanPdfText(items) {
+      if (!items?.length) return '';
+      const sorted = [...items].sort((a,b) => {
+        const yA=a.transform[5], yB=b.transform[5];
+        if (Math.abs(yA-yB)>6) return yB-yA;
+        return a.transform[4]-b.transform[4];
+      });
+      let text='', lastY=null, lastX=0;
+      for (const it of sorted) {
+        const s = it.str; if (!s?.trim()) continue;
+        const y=it.transform[5], x=it.transform[4];
+        if (lastY!==null && Math.abs(y-lastY)>9) text+='\n\n';
+        else if (lastY!==null && x-lastX>12) text+=' ';
+        text+=s; lastY=y; lastX=x+(it.width||0);
+      }
+      return text.replace(/\n{3,}/g,'\n\n').trim();
+    }
+
+    async function extractTextFromPDF(file, onProgress) {
+      const buf = await file.arrayBuffer();
+      const task = pdfjsLib.getDocument({ data: buf });
+      task.onPassword = (cb, reason) => {
+        const msg = reason===1 ? 'Password required:' : 'Wrong password, try again:';
+        const p = prompt(msg);
+        if (p) cb(p); else throw new Error('Password required');
+      };
+      const pdf = await task.promise;
+      let full = '';
+      const worker = await Tesseract.createWorker('eng');
+      for (let i=1; i<=pdf.numPages; i++) {
+        onProgress(i/pdf.numPages, `Page ${i}/${pdf.numPages}`);
+        const page = await pdf.getPage(i);
+        let pageText = '';
+        try {
+          const content = await page.getTextContent();
+          pageText = cleanPdfText(content.items);
+        } catch(e){}
+        if (pageText.replace(/\s/g,'').length < 40) {
+          const vp = page.getViewport({scale:1.8});
+          const canvas = document.createElement('canvas');
+          canvas.width=vp.width; canvas.height=vp.height;
+          await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
+          const {data:{text}} = await worker.recognize(canvas);
+          pageText = text.trim();
+        }
+        full += (full?'\n\n':'') + `--- Page ${i} ---\n\n` + pageText;
+      }
+      await worker.terminate();
+      return full;
+    }
+
+    async function handleFiles(files) {
+      for (const file of files) {
+        if (file.type !== 'application/pdf') continue;
+        statusEl.textContent = 'Processing…';
+        extractProgress.style.width = '0%';
+        sidebar.classList.remove('open');
+        try {
+          const text = await extractTextFromPDF(file, (p,msg) => {
+            extractProgress.style.width = (p*100)+'%';
+            statusEl.textContent = msg;
+          });
+          const id = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+          const doc = { id, name: file.name.replace(/\.pdf$/i,''), text, lastPosition:0, bookmarks:[], notes:'', created:new Date().toISOString(), lastRead:new Date().toISOString() };
+          await idbPut(doc);
+          library.unshift(doc);
+          renderLibrary();
+          openDocument(id);
+          statusEl.textContent = 'Loaded: '+doc.name;
+        } catch(err) {
+          alert('Failed: '+(err.message||err));
+          statusEl.textContent = 'Error';
+        }
+        extractProgress.style.width = '0%';
+      }
+      $('fileInput').value = '';
+    }
+
+    // ===== Library =====
+    async function loadLibrary() {
+      try {
+        const old = localStorage.getItem('pdfLibrary');
+        if (old) {
+          for (const d of JSON.parse(old)) await idbPut(d);
+          localStorage.removeItem('pdfLibrary');
+        }
+      } catch(e){}
+      library = await idbGetAll();
+      sortLibrary();
+      renderLibrary();
+      if (library.length) openDocument(library[0].id);
+    }
+
+    function sortLibrary() {
+      const mode = $('sortSelect').value;
+      if (mode==='name') library.sort((a,b)=>a.name.localeCompare(b.name));
+      else if (mode==='date') library.sort((a,b)=>(b.created||'').localeCompare(a.created||''));
+      else library.sort((a,b)=>(b.lastRead||'').localeCompare(a.lastRead||''));
+    }
+    $('sortSelect').onchange = () => { sortLibrary(); renderLibrary(); };
+
+    function renderLibrary() {
+      libraryList.innerHTML = '';
+      if (!library.length) {
+        libraryList.innerHTML = '<div style="padding:16px;color:var(--muted)">No documents</div>';
+        return;
+      }
+      library.forEach(doc => {
+        const div = document.createElement('div');
+        div.className = 'doc-item'+(doc.id===currentId?' active':'');
+        div.innerHTML = `<span class="name">${doc.name}</span>
+          <div class="doc-actions">
+            <span class="rename" title="Rename">✎</span>
+            <span class="delete" title="Delete">✕</span>
+          </div>`;
+        div.onclick = async e => {
+          if (e.target.classList.contains('delete')) {
+            if (confirm('Delete permanently?')) {
+              await idbDelete(doc.id);
+              library = library.filter(d=>d.id!==doc.id);
+              if (currentId===doc.id){ currentId=null; currentText=''; reader.innerHTML='<div class="empty">Deleted</div>'; }
+              renderLibrary();
+            }
+            return;
+          }
+          if (e.target.classList.contains('rename')) {
+            renameTargetId = doc.id;
+            $('renameInput').value = doc.name;
+            $('renameModal').classList.add('show');
+            return;
+          }
+          openDocument(doc.id);
+          sidebar.classList.remove('open');
+        };
+        libraryList.appendChild(div);
+      });
+    }
+
+    $('renameCancel').onclick = () => $('renameModal').classList.remove('show');
+    $('renameSave').onclick = async () => {
+      const doc = library.find(d=>d.id===renameTargetId);
+      if (doc) {
+        doc.name = $('renameInput').value.trim() || doc.name;
+        await idbPut(doc);
+        renderLibrary();
+        if (currentId===doc.id) statusEl.textContent = doc.name;
+      }
+      $('renameModal').classList.remove('show');
+    };
+
+    // ===== Open & Render =====
+    function openDocument(id) {
+      const doc = library.find(d=>d.id===id);
+      if (!doc) return;
+      currentId = id;
+      currentText = doc.text;
+      doc.lastRead = new Date().toISOString();
+      idbPut(doc);
+      renderText(currentText);
+      setTimeout(()=>{ readerWrapper.scrollTop = doc.lastPosition||0; updateProgress(); updateStats(); }, 40);
+      renderLibrary();
+      statusEl.textContent = doc.name;
+      searchMatches = []; currentMatch = -1;
+    }
+
+    function renderText(text, query='') {
+      if (!text){ reader.innerHTML='<div class="empty">No text</div>'; return; }
+      let html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/--- Page (\d+) ---/g, '<div class="page-marker">PAGE $1</div>');
+      if (query) {
+        const esc = query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+        html = html.replace(new RegExp(`(${esc})`,'gi'), '<mark>$1</mark>');
+      }
+      reader.innerHTML = html;
+      if (query) collectMatches();
+    }
+
+    function collectMatches() {
+      searchMatches = Array.from(reader.querySelectorAll('mark'));
+      currentMatch = searchMatches.length ? 0 : -1;
+      highlightCurrent();
+    }
+    function highlightCurrent() {
+      searchMatches.forEach((m,i)=> m.classList.toggle('current', i===currentMatch));
+      if (currentMatch>=0 && searchMatches[currentMatch]) {
+        searchMatches[currentMatch].scrollIntoView({behavior:'smooth', block:'center'});
+      }
+    }
+    $('searchNext').onclick = () => {
+      if (!searchMatches.length) return;
+      currentMatch = (currentMatch+1) % searchMatches.length;
+      highlightCurrent();
+    };
+    $('searchPrev').onclick = () => {
+      if (!searchMatches.length) return;
+      currentMatch = (currentMatch-1+searchMatches.length) % searchMatches.length;
+      highlightCurrent();
+    };
+
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim();
+      renderText(currentText, q);
+    });
+    $('clearSearch').onclick = () => { searchInput.value=''; renderText(currentText); searchMatches=[]; currentMatch=-1; };
+
+    // Scroll memory + progress
+    let scrollTimer;
+    readerWrapper.addEventListener('scroll', () => {
+      if (!currentId) return;
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(async () => {
+        const doc = library.find(d=>d.id===currentId);
+        if (doc){ doc.lastPosition = readerWrapper.scrollTop; await idbPut(doc); }
+        updateProgress();
+      }, 280);
+    });
+    function updateProgress() {
+      const el = readerWrapper;
+      if (el.scrollHeight<=el.clientHeight){ progressPercent.textContent='100%'; return; }
+      const pct = Math.min(100, Math.round(el.scrollTop/(el.scrollHeight-el.clientHeight)*100));
+      progressPercent.textContent = pct+'%';
+    }
+    function updateStats() {
+      if (!currentText){ $('stats').textContent=''; return; }
+      const words = currentText.trim().split(/\s+/).filter(Boolean).length;
+      const mins = Math.max(1, Math.round(words/200));
+      $('stats').textContent = words+' words · ~'+mins+' min';
+    }
+
+    // Bookmarks
+    $('bookmarkBtn').onclick = async () => {
+      if (!currentId) return;
+      const doc = library.find(d=>d.id===currentId);
+      if (!doc) return;
+      if (!doc.bookmarks) doc.bookmarks = [];
+      doc.bookmarks.push({ pos: readerWrapper.scrollTop, time: new Date().toLocaleString() });
+      await idbPut(doc);
+      alert('Bookmark saved ('+doc.bookmarks.length+' total)');
+    };
+
+    // Notes
+    $('notesBtn').onclick = () => {
+      if (!currentId) return;
+      const doc = library.find(d=>d.id===currentId);
+      $('notesText').value = doc?.notes || '';
+      $('notesModal').classList.add('show');
+    };
+    $('notesCancel').onclick = () => $('notesModal').classList.remove('show');
+    $('notesSave').onclick = async () => {
+      const doc = library.find(d=>d.id===currentId);
+      if (doc){ doc.notes = $('notesText').value; await idbPut(doc); }
+      $('notesModal').classList.remove('show');
+    };
+
+    // Copy
+    $('copyBtn').onclick = () => {
+      if (!currentText) return;
+      navigator.clipboard.writeText(currentText).then(()=>alert('Copied!')).catch(()=>alert('Copy failed'));
+    };
+
+    // Export / Import
+    $('exportBtn').onclick = async () => {
+      const data = JSON.stringify(library, null, 2);
+      const blob = new Blob([data], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'pdf-library-backup.json';
+      a.click();
+    };
+    $('importBtn').onclick = () => $('importFile').click();
+    $('importFile').onchange = async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const docs = JSON.parse(text);
+        for (const d of docs) await idbPut(d);
+        library = await idbGetAll();
+        sortLibrary();
+        renderLibrary();
+        alert('Imported '+docs.length+' documents');
+      } catch(err){ alert('Import failed'); }
+      e.target.value = '';
+    };
+
+    // TTS (improved for mobile)
+    $('ttsPlay').onclick = () => {
+      if (!currentText) return;
+      speechSynthesis.cancel();
+      const chunk = currentText.slice(0, 12000);
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.rate = 0.95;
+      u.onend = () => { isSpeaking=false; clearInterval(autoScrollInterval); };
+      u.onerror = () => { isSpeaking=false; clearInterval(autoScrollInterval); };
+      speechSynthesis.speak(u);
+      isSpeaking = true;
+      clearInterval(autoScrollInterval);
+      autoScrollInterval = setInterval(() => { if(isSpeaking) readerWrapper.scrollBy(0, 1.0); }, 100);
+    };
+    $('ttsPause').onclick = () => { if (speechSynthesis.speaking) speechSynthesis.pause(); };
+    $('ttsStop').onclick = () => { speechSynthesis.cancel(); isSpeaking=false; clearInterval(autoScrollInterval); };
+
+    // Init
+    loadLibrary().catch(()=> statusEl.textContent='Ready');
+  </script>
+</body>
+</html>
