@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>PDF Library Pro</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --muted: #64748b;
+      --primary: #2563eb; --border: #e2e8f0; --highlight: #fde047;
+      --reader-max: 720px; --line-height: 1.7; --font-size: 17px; --margin: 20px;
+    }
+    [data-theme="dark"] {
+      --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --muted: #94a3b8;
+      --primary: #3b82f6; --border: #334155; --highlight: #a16207;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+    }
+    header {
+      background: var(--card); border-bottom: 1px solid var(--border);
+      padding: 8px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; z-index: 50;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; white-space: nowrap; }
+    .controls { display: flex; gap: 5px; margin-left: auto; flex-wrap: wrap; }
+    button {
+      background: var(--primary); color: white; border: none;
+      padding: 7px 11px; border-radius: 8px; font-size: 0.85rem;
+      cursor: pointer; min-height: 38px;
+    }
+    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.45; }
+    .main { display: flex; flex: 1; overflow: hidden; position: relative; }
+    .sidebar {
+      width: 300px; background: var(--card); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; z-index: 40;
+    }
+    .sidebar-header { padding: 12px; border-bottom: 1px solid var(--border); }
+    .upload-zone {
+      border: 2px dashed var(--border); border-radius: 10px; padding: 16px;
+      text-align: center; cursor: pointer; color: var(--muted); font-size: 0.9rem;
+    }
+    .upload-zone:active { border-color: var(--primary); background: rgba(37,99,235,0.08); }
+    #fileInput { display: none; }
+    .lib-tools { padding: 8px 12px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+    .folder-bar { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 6px; flex-wrap: wrap; }
+    .folder-chip {
+      padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; cursor: pointer;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    }
+    .folder-chip.active { background: var(--primary); color: white; border-color: var(--primary); }
+    .library-list { flex: 1; overflow-y: auto; padding: 8px; }
+    .doc-item {
+      padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 4px;
+      display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 0.9rem;
+    }
+    .doc-item.active, .doc-item:active { background: rgba(37,99,235,0.12); }
+    .doc-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .doc-item .folder-tag { font-size: 0.7rem; color: var(--muted); margin-left: 4px; }
+    .doc-actions { display: flex; gap: 4px; }
+    .doc-actions span { opacity: 0.6; padding: 2px 6px; font-size: 0.85rem; }
+    .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .toolbar {
+      padding: 8px 12px; background: var(--card); border-bottom: 1px solid var(--border);
+      display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    }
+    #searchInput {
+      flex: 1; min-width: 100px; padding: 8px 12px; border: 1px solid var(--border);
+      border-radius: 8px; background: var(--bg); color: var(--text); font-size: 0.95rem;
+    }
+    .reader-wrapper { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; position: relative; }
+    .reader {
+      max-width: var(--reader-max); margin: 0 auto; padding: var(--margin);
+      line-height: var(--line-height); font-size: var(--font-size);
+      white-space: pre-wrap; word-wrap: break-word;
+    }
+    .reader mark { background: var(--highlight); padding: 0 2px; border-radius: 2px; }
+    .reader mark.current { outline: 2px solid var(--primary); background: #fbbf24; }
+    .reader .saved-hl { background: #86efac; border-radius: 2px; padding: 0 2px; }
+    .page-marker {
+      display: block; margin: 1.8em 0 0.8em; padding-bottom: 5px;
+      font-size: 0.78rem; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--border);
+    }
+    .status-bar {
+      padding: 7px 14px; font-size: 0.8rem; color: var(--muted);
+      border-top: 1px solid var(--border); background: var(--card);
+      display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px;
+    }
+    .progress-bar-outer { height: 3px; background: var(--border); }
+    .progress-bar-outer > div { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s; }
+    body.focus-mode header,
+    body.focus-mode .sidebar,
+    body.focus-mode .toolbar { display: none !important; }
+    body.focus-mode .status-bar { opacity: 0.6; }
+    .focus-exit {
+      display: none; position: fixed; top: 12px; right: 12px; z-index: 200;
+      background: var(--primary); color: white; border: none; padding: 10px 16px;
+      border-radius: 10px; font-size: 0.9rem; box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    body.focus-mode .focus-exit { display: block; }
+    .menu-btn { display: none; }
+    @media (max-width: 768px) {
+      .sidebar {
+        position: absolute; left: 0; top: 0; bottom: 0;
+        transform: translateX(-100%); transition: transform 0.25s ease;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.18);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .menu-btn { display: inline-flex !important; }
+    }
+    .empty { text-align: center; padding: 50px 20px; color: var(--muted); line-height: 1.6; }
+    .settings-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 0.8rem; }
+    select, input[type="range"], input[type="text"].modal-input {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px;
+    }
+    .page-nav {
+      display: none; padding: 8px 12px; background: var(--card); border-bottom: 1px solid var(--border);
+      align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;
+    }
+    body.page-mode .page-nav { display: flex; }
+    body.page-mode .reader .page-block { display: none; }
+    body.page-mode .reader .page-block.active { display: block; }
+    .page-nav button { min-width: 70px; }
+    .page-info { font-size: 0.9rem; color: var(--muted); min-width: 90px; text-align: center; }
+    .modal-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100;
+      display: none; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-bg.show { display: flex; }
+    .modal {
+      background: var(--card); border-radius: 12px; padding: 20px; width: 100%; max-width: 420px;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .modal h3 { margin-bottom: 12px; }
+    .modal textarea, .modal input[type="text"] {
+      width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--bg); color: var(--text); margin-bottom: 12px; font-size: 1rem;
+    }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+    .hl-list { max-height: 200px; overflow-y: auto; margin-bottom: 12px; }
+    .hl-item {
+      padding: 8px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px;
+      font-size: 0.85rem; cursor: pointer;
+    }
+    .hl-item:active { background: rgba(37,99,235,0.1); }
+  </style>
+</head>
+<body>
+  <header>
+    <button class="menu-btn secondary" id="menuBtn">☰</button>
+    <h1>📚 PDF Library</h1>
+    <button id="headerUploadBtn">+ Upload</button>
+    <div class="controls">
+      <button class="secondary" id="focusBtn">Focus</button>
+      <button class="secondary" id="pageModeBtn">Pages</button>
+      <button class="secondary" id="fontDown">A−</button>
+      <button class="secondary" id="fontUp">A+</button>
+      <button class="secondary" id="themeBtn">🌓</button>
+      <button id="ttsPlay">🔊</button>
+      <button class="secondary" id="ttsPause">⏸</button>
+      <button class="secondary" id="ttsStop">⏹</button>
+    </div>
+  </header>
+
+  <button class="focus-exit" id="focusExitBtn">Exit Focus</button>
+
+  <div class="progress-bar-outer"><div id="extractProgress"></div></div>
+
+  <div class="main">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="upload-zone" id="uploadZone">📄 Tap to upload PDF</div>
+        <input type="file" id="fileInput" accept="application/pdf" multiple />
+      </div>
+      <div class="folder-bar" id="folderBar"></div>
+      <div class="lib-tools">
+        <select id="sortSelect" style="flex:1">
+          <option value="recent">Recently read</option>
+          <option value="name">Name</option>
+          <option value="date">Date added</option>
+        </select>
+        <button class="secondary" id="exportBtn" title="Export backup">⬆</button>
+        <button class="secondary" id="importBtn" title="Import backup">⬇</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" />
+      </div>
+      <div class="library-list" id="libraryList"></div>
+    </aside>
+
+    <div class="content-area">
+      <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="Search…" />
+        <button class="secondary" id="searchPrev" title="Previous match">↑</button>
+        <button class="secondary" id="searchNext" title="Next match">↓</button>
+        <button class="secondary" id="clearSearch">Clear</button>
+        <button class="secondary" id="highlightBtn" title="Save selected text">Highlight</button>
+        <button class="secondary" id="bookmarkBtn">🔖</button>
+        <button class="secondary" id="copyBtn">Copy</button>
+        <button class="secondary" id="notesBtn">Notes</button>
+        <button class="secondary" id="highlightsListBtn">Highlights</button>
+        <div class="settings-row">
+          <label>Width
+            <select id="widthSelect">
+              <option value="560px">Narrow</option>
+              <option value="720px" selected>Normal</option>
+              <option value="900px">Wide</option>
+            </select>
+          </label>
+          <label>Space <input type="range" id="lineHeight" min="1.3" max="2.2" step="0.1" value="1.7" style="width:65px"></label>
+          <label>Margin <input type="range" id="marginRange" min="12" max="40" step="4" value="20" style="width:65px"></label>
+        </div>
+      </div>
+
+      <div class="page-nav" id="pageNav">
+        <button class="secondary" id="prevPage">← Prev</button>
+        <span class="page-info" id="pageInfo">Page 1 / 1</span>
+        <button class="secondary" id="nextPage">Next →</button>
+        <input type="number" id="gotoPage" min="1" placeholder="Go" style="width:60px;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);" />
+        <button class="secondary" id="gotoBtn">Go</button>
+      </div>
+
+      <div class="reader-wrapper" id="readerWrapper">
+        <div class="reader" id="reader">
+          <div class="empty">Tap <b>+ Upload</b> to add a PDF.<br>Your library stays on this device.</div>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <span id="status">Ready</span>
+        <span id="stats"></span>
+        <span id="progressPercent">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="notesModal">
+    <div class="modal">
+      <h3>Notes</h3>
+      <textarea id="notesText" rows="6" placeholder="Write notes for this document…"></textarea>
+      <div class="modal-actions">
+        <button class="secondary" id="notesCancel">Cancel</button>
+        <button id="notesSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="renameModal">
+    <div class="modal">
+      <h3>Rename / Folder</h3>
+      <input type="text" id="renameInput" placeholder="Document name" />
+      <input type="text" id="folderInput" placeholder="Folder (e.g. Study, Work)" />
+      <div class="modal-actions">
+        <button class="secondary" id="renameCancel">Cancel</button>
+        <button id="renameSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="highlightsModal">
+    <div class="modal">
+      <h3>Saved Highlights</h3>
+      <div class="hl-list" id="hlList"></div>
+      <div class="modal-actions">
+        <button class="secondary" id="hlClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+
+    const DB_NAME = 'PDFLibraryDB', STORE = 'documents';
+    let library = [], currentId = null, currentText = '', fontSize = +(localStorage.getItem('fontSize')||17);
+    let searchMatches = [], currentMatch = -1, isSpeaking = false, autoScrollInterval = null;
+    let renameTargetId = null, currentFolder = 'All';
+    let pages = [], currentPageIdx = 0, pageMode = false;
+
+    const $ = id => document.getElementById(id);
+    const reader = $('reader'), readerWrapper = $('readerWrapper');
+    const libraryList = $('libraryList'), statusEl = $('status');
+    const progressPercent = $('progressPercent'), extractProgress = $('extractProgress');
+    const searchInput = $('searchInput'), sidebar = $('sidebar');
+
+    function openDB() {
+      return new Promise((res, rej) => {
+        const r = indexedDB.open(DB_NAME, 1);
+        r.onupgradeneeded = e => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+        };
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+    }
+    async function idbGetAll() {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const r = db.transaction(STORE,'readonly').objectStore(STORE).getAll();
+        r.onsuccess = () => res(r.result||[]);
+        r.onerror = () => rej(r.error);
+      });
+    }
+    async function idbPut(doc) {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).put(doc);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+    }
+    async function idbDelete(id) {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+    }
+
+    $('menuBtn').onclick = () => sidebar.classList.toggle('open');
+    $('themeBtn').onclick = () => {
+      const n = document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+      localStorage.setItem('theme', n);
+      document.documentElement.setAttribute('data-theme', n);
+    };
+    document.documentElement.setAttribute('data-theme', localStorage.getItem('theme')||'light');
+
+    function applyFont(){ document.documentElement.style.setProperty('--font-size', fontSize+'px'); localStorage.setItem('fontSize', fontSize); }
+    applyFont();
+    $('fontUp').onclick = () => { fontSize = Math.min(26, fontSize+1); applyFont(); };
+    $('fontDown').onclick = () => { fontSize = Math.max(13, fontSize-1); applyFont(); };
+    $('lineHeight').oninput = e => document.documentElement.style.setProperty('--line-height', e.target.value);
+    $('marginRange').oninput = e => document.documentElement.style.setProperty('--margin', e.target.value+'px');
+    $('widthSelect').onchange = e => document.documentElement.style.setProperty('--reader-max', e.target.value);
+
+    function setFocusMode(on) {
+      document.body.classList.toggle('focus-mode', on);
+      $('focusBtn').textContent = on ? 'Exit' : 'Focus';
+    }
+    $('focusBtn').onclick = () => setFocusMode(!document.body.classList.contains('focus-mode'));
+    $('focusExitBtn').onclick = () => setFocusMode(false);
+
+    $('pageModeBtn').onclick = () => {
+      pageMode = !pageMode;
+      document.body.classList.toggle('page-mode', pageMode);
+      $('pageModeBtn').textContent = pageMode ? 'Scroll' : 'Pages';
+      if (pageMode && pages.length) showPage(currentPageIdx);
+      else if (currentText) renderText(currentText, searchInput.value.trim());
+    };
+
+    $('uploadZone').onclick = () => $('fileInput').click();
+    $('headerUploadBtn').onclick = () => $('fileInput').click();
+    $('fileInput').onchange = e => handleFiles(e.target.files);
+
+    function cleanPdfText(items) {
+      if (!items?.length) return '';
+      const sorted = [...items].sort((a,b) => {
+        const yA=a.transform[5], yB=b.transform[5];
+        if (Math.abs(yA-yB)>6) return yB-yA;
+        return a.transform[4]-b.transform[4];
+      });
+      let text='', lastY=null, lastX=0;
+      for (const it of sorted) {
+        const s = it.str; if (!s?.trim()) continue;
+        const y=it.transform[5], x=it.transform[4];
+        if (lastY!==null && Math.abs(y-lastY)>9) text+='\n\n';
+        else if (lastY!==null && x-lastX>12) text+=' ';
+        text+=s; lastY=y; lastX=x+(it.width||0);
+      }
+      return text.replace(/\n{3,}/g,'\n\n').trim();
+    }
+
+    async function extractTextFromPDF(file, onProgress) {
+      const buf = await file.arrayBuffer();
+      const task = pdfjsLib.getDocument({ data: buf });
+      task.onPassword = (cb, reason) => {
+        const msg = reason===1 ? 'Password required:' : 'Wrong password, try again:';
+        const p = prompt(msg);
+        if (p) cb(p); else throw new Error('Password required');
+      };
+      const pdf = await task.promise;
+      let full = '';
+      const worker = await Tesseract.createWorker('eng');
+      for (let i=1; i<=pdf.numPages; i++) {
+        onProgress(i/pdf.numPages, 'Page '+i+'/'+pdf.numPages);
+        const page = await pdf.getPage(i);
+        let pageText = '';
+        try {
+          const content = await page.getTextContent();
+          pageText = cleanPdfText(content.items);
+        } catch(e){}
+        if (pageText.replace(/\s/g,'').length < 40) {
+          const vp = page.getViewport({scale:1.8});
+          const canvas = document.createElement('canvas');
+          canvas.width=vp.width; canvas.height=vp.height;
+          await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
+          const {data:{text}} = await worker.recognize(canvas);
+          pageText = text.trim();
+        }
+        full += (full?'\n\n':'') + '--- Page '+i+' ---\n\n' + pageText;
+      }
+      await worker.terminate();
+      return full;
+    }
+
+    async function handleFiles(files) {
+      for (const file of files) {
+        if (file.type !== 'application/pdf') continue;
+        statusEl.textContent = 'Processing…';
+        extractProgress.style.width = '0%';
+        sidebar.classList.remove('open');
+        try {
+          const text = await extractTextFromPDF(file, (p,msg) => {
+            extractProgress.style.width = (p*100)+'%';
+            statusEl.textContent = msg;
+          });
+          const id = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+          const doc = {
+            id, name: file.name.replace(/\.pdf$/i,''), text,
+            lastPosition:0, bookmarks:[], notes:'', highlights:[],
+            folder: '', created:new Date().toISOString(), lastRead:new Date().toISOString()
+          };
+          await idbPut(doc);
+          library.unshift(doc);
+          renderFolders();
+          renderLibrary();
+          openDocument(id);
+          statusEl.textContent = 'Loaded: '+doc.name;
+        } catch(err) {
+          alert('Failed: '+(err.message||err));
+          statusEl.textContent = 'Error';
+        }
+        extractProgress.style.width = '0%';
+      }
+      $('fileInput').value = '';
+    }
+
+    function getFolders() {
+      const set = new Set();
+      library.forEach(d => { if (d.folder) set.add(d.folder); });
+      return ['All', ...Array.from(set).sort()];
+    }
+    function renderFolders() {
+      const bar = $('folderBar');
+      bar.innerHTML = '';
+      getFolders().forEach(f => {
+        const chip = document.createElement('span');
+        chip.className = 'folder-chip' + (f === currentFolder ? ' active' : '');
+        chip.textContent = f;
+        chip.onclick = () => { currentFolder = f; renderFolders(); renderLibrary(); };
+        bar.appendChild(chip);
+      });
+    }
+
+    async function loadLibrary() {
+      try {
+        const old = localStorage.getItem('pdfLibrary');
+        if (old) {
+          for (const d of JSON.parse(old)) {
+            if (!d.highlights) d.highlights = [];
+            if (!d.folder) d.folder = '';
+            await idbPut(d);
+          }
+          localStorage.removeItem('pdfLibrary');
+        }
+      } catch(e){}
+      library = await idbGetAll();
+      library.forEach(d => {
+        if (!d.highlights) d.highlights = [];
+        if (!d.folder) d.folder = '';
+      });
+      sortLibrary();
+      renderFolders();
+      renderLibrary();
+      if (library.length) openDocument(library[0].id);
+    }
+
+    function sortLibrary() {
+      const mode = $('sortSelect').value;
+      if (mode==='name') library.sort((a,b)=>a.name.localeCompare(b.name));
+      else if (mode==='date') library.sort((a,b)=>(b.created||'').localeCompare(a.created||''));
+      else library.sort((a,b)=>(b.lastRead||'').localeCompare(a.lastRead||''));
+    }
+    $('sortSelect').onchange = () => { sortLibrary(); renderLibrary(); };
+
+    function renderLibrary() {
+      libraryList.innerHTML = '';
+      const filtered = currentFolder === 'All' ? library : library.filter(d => d.folder === currentFolder);
+      if (!filtered.length) {
+        libraryList.innerHTML = '<div style="padding:16px;color:var(--muted)">No documents</div>';
+        return;
+      }
+      filtered.forEach(doc => {
+        const div = document.createElement('div');
+        div.className = 'doc-item'+(doc.id===currentId?' active':'');
+        const folderTag = doc.folder ? '<span class="folder-tag">['+doc.folder+']</span>' : '';
+        div.innerHTML = '<span class="name">'+doc.name+folderTag+'</span><div class="doc-actions"><span class="rename" title="Rename / Folder">✎</span><span class="delete" title="Delete">✕</span></div>';
+        div.onclick = async e => {
+          if (e.target.classList.contains('delete')) {
+            if (confirm('Delete permanently?')) {
+              await idbDelete(doc.id);
+              library = library.filter(d=>d.id!==doc.id);
+              if (currentId===doc.id){ currentId=null; currentText=''; reader.innerHTML='<div class="empty">Deleted</div>'; }
+              renderFolders();
+              renderLibrary();
+            }
+            return;
+          }
+          if (e.target.classList.contains('rename')) {
+            renameTargetId = doc.id;
+            $('renameInput').value = doc.name;
+            $('folderInput').value = doc.folder || '';
+            $('renameModal').classList.add('show');
+            return;
+          }
+          openDocument(doc.id);
+          sidebar.classList.remove('open');
+        };
+        libraryList.appendChild(div);
+      });
+    }
+
+    $('renameCancel').onclick = () => $('renameModal').classList.remove('show');
+    $('renameSave').onclick = async () => {
+      const doc = library.find(d=>d.id===renameTargetId);
+      if (doc) {
+        doc.name = $('renameInput').value.trim() || doc.name;
+        doc.folder = $('folderInput').value.trim();
+        await idbPut(doc);
+        renderFolders();
+        renderLibrary();
+        if (currentId===doc.id) statusEl.textContent = doc.name;
+      }
+      $('renameModal').classList.remove('show');
+    };
+
+    function openDocument(id) {
+      const doc = library.find(d=>d.id===id);
+      if (!doc) return;
+      currentId = id;
+      currentText = doc.text;
+      doc.lastRead = new Date().toISOString();
+      idbPut(doc);
+      buildPages(currentText);
+      renderText(currentText);
+      setTimeout(()=>{ readerWrapper.scrollTop = doc.lastPosition||0; updateProgress(); updateStats(); }, 40);
+      renderLibrary();
+      statusEl.textContent = doc.name;
+      searchMatches = []; currentMatch = -1;
+      if (pageMode) showPage(0);
+    }
+
+    function buildPages(text) {
+      pages = [];
+      if (!text) return;
+      const parts = text.split(/--- Page (\d+) ---/);
+      for (let i = 1; i < parts.length; i += 2) {
+        const num = parts[i];
+        const content = (parts[i+1] || '').trim();
+        pages.push({ num, content });
+      }
+      if (pages.length === 0 && text.trim()) {
+        pages.push({ num: '1', content: text });
+      }
+      currentPageIdx = 0;
+      updatePageInfo();
+    }
+
+    function showPage(idx) {
+      if (!pages.length) return;
+      currentPageIdx = Math.max(0, Math.min(idx, pages.length - 1));
+      const p = pages[currentPageIdx];
+      let html = '<div class="page-block active"><div class="page-marker">PAGE '+p.num+'</div>'+escapeHtml(p.content)+'</div>';
+      const doc = library.find(d => d.id === currentId);
+      if (doc?.highlights?.length) {
+        doc.highlights.forEach(h => {
+          if (h.text) {
+            const esc = escapeRegExp(h.text);
+            html = html.replace(new RegExp(esc, 'gi'), m => '<span class="saved-hl">'+m+'</span>');
+          }
+        });
+      }
+      reader.innerHTML = html;
+      updatePageInfo();
+      readerWrapper.scrollTop = 0;
+      updateProgress();
+    }
+
+    function updatePageInfo() {
+      $('pageInfo').textContent = pages.length ? 'Page '+(currentPageIdx+1)+' / '+pages.length : 'Page 0 / 0';
+      $('gotoPage').max = pages.length || 1;
+    }
+
+    $('prevPage').onclick = () => { if (currentPageIdx > 0) showPage(currentPageIdx - 1); };
+    $('nextPage').onclick = () => { if (currentPageIdx < pages.length - 1) showPage(currentPageIdx + 1); };
+    $('gotoBtn').onclick = () => {
+      const n = parseInt($('gotoPage').value, 10);
+      if (n >= 1 && n <= pages.length) showPage(n - 1);
+    };
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function escapeRegExp(str) {
+      return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function renderText(text, query='') {
+      if (!text){ reader.innerHTML='<div class="empty">No text</div>'; return; }
+      if (pageMode) {
+        showPage(currentPageIdx);
+        return;
+      }
+      let html = escapeHtml(text).replace(/--- Page (\d+) ---/g, '<div class="page-marker">PAGE $1</div>');
+      const doc = library.find(d => d.id === currentId);
+      if (doc?.highlights?.length) {
+        doc.highlights.forEach(h => {
+          if (h.text && h.text.length > 2) {
+            const esc = escapeRegExp(h.text);
+            html = html.replace(new RegExp('('+esc+')', 'gi'), '<span class="saved-hl">$1</span>');
+          }
+        });
+      }
+      if (query) {
+        const esc = escapeRegExp(query);
+        html = html.replace(new RegExp('('+esc+')','gi'), '<mark>$1</mark>');
+      }
+      reader.innerHTML = html;
+      if (query) collectMatches();
+    }
+
+    function collectMatches() {
+      searchMatches = Array.from(reader.querySelectorAll('mark'));
+      currentMatch = searchMatches.length ? 0 : -1;
+      highlightCurrent();
+      statusEl.textContent = searchMatches.length ? searchMatches.length+' matches' : 'No matches';
+    }
+    function highlightCurrent() {
+      searchMatches.forEach((m,i)=> m.classList.toggle('current', i===currentMatch));
+      if (currentMatch>=0 && searchMatches[currentMatch]) {
+        searchMatches[currentMatch].scrollIntoView({behavior:'smooth', block:'center'});
+      }
+    }
+    $('searchNext').onclick = () => {
+      if (!searchMatches.length) return;
+      currentMatch = (currentMatch+1) % searchMatches.length;
+      highlightCurrent();
+    };
+    $('searchPrev').onclick = () => {
+      if (!searchMatches.length) return;
+      currentMatch = (currentMatch-1+searchMatches.length) % searchMatches.length;
+      highlightCurrent();
+    };
+
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim();
+      renderText(currentText, q);
+    });
+    $('clearSearch').onclick = () => {
+      searchInput.value='';
+      renderText(currentText);
+      searchMatches=[]; currentMatch=-1;
+      statusEl.textContent = library.find(d=>d.id===currentId)?.name || 'Ready';
+    };
+
+    $('highlightBtn').onclick = async () => {
+      if (!currentId) return;
+      const sel = window.getSelection();
+      const text = sel.toString().trim();
+      if (!text || text.length < 2) {
+        alert('Select some text first, then tap Highlight');
+        return;
+      }
+      const doc = library.find(d => d.id === currentId);
+      if (!doc) return;
+      if (!doc.highlights) doc.highlights = [];
+      if (!doc.highlights.some(h => h.text === text)) {
+        doc.highlights.push({ text, time: new Date().toLocaleString() });
+        await idbPut(doc);
+        alert('Highlight saved!');
+        renderText(currentText, searchInput.value.trim());
+      } else {
+        alert('Already highlighted');
+      }
+      sel.removeAllRanges();
+    };
+
+    $('highlightsListBtn').onclick = () => {
+      if (!currentId) return;
+      const doc = library.find(d => d.id === currentId);
+      const list = $('hlList');
+      list.innerHTML = '';
+      if (!doc?.highlights?.length) {
+        list.innerHTML = '<div style="color:var(--muted)">No highlights yet. Select text and tap Highlight.</div>';
+      } else {
+        doc.highlights.forEach((h, i) => {
+          const div = document.createElement('div');
+          div.className = 'hl-item';
+          div.innerHTML = '<div>'+escapeHtml(h.text.slice(0,120))+(h.text.length>120?'…':'')+'</div><small style="color:var(--muted)">'+(h.time||'')+'</small>';
+          div.onclick = () => {
+            searchInput.value = h.text.slice(0, 40);
+            renderText(currentText, h.text.slice(0, 40));
+            $('highlightsModal').classList.remove('show');
+          };
+          div.oncontextmenu = async (e) => {
+            e.preventDefault();
+            if (confirm('Delete this highlight?')) {
+              doc.highlights.splice(i, 1);
+              await idbPut(doc);
+              $('highlightsListBtn').click();
+              renderText(currentText, searchInput.value.trim());
+            }
+          };
+          list.appendChild(div);
+        });
+      }
+      $('highlightsModal').classList.add('show');
+    };
+    $('hlClose').onclick = () => $('highlightsModal').classList.remove('show');
+
+    let scrollTimer;
+    readerWrapper.addEventListener('scroll', () => {
+      if (!currentId || pageMode) return;
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(async () => {
+        const doc = library.find(d=>d.id===currentId);
+        if (doc){ doc.lastPosition = readerWrapper.scrollTop; await idbPut(doc); }
+        updateProgress();
+      }, 280);
+    });
+    function updateProgress() {
+      if (pageMode) {
+        progressPercent.textContent = pages.length ? Math.round(((currentPageIdx+1)/pages.length)*100)+'%' : '0%';
+        return;
+      }
+      const el = readerWrapper;
+      if (el.scrollHeight<=el.clientHeight){ progressPercent.textContent='100%'; return; }
+      const pct = Math.min(100, Math.round(el.scrollTop/(el.scrollHeight-el.clientHeight)*100));
+      progressPercent.textContent = pct+'%';
+    }
+    function updateStats() {
+      if (!currentText){ $('stats').textContent=''; return; }
+      const words = currentText.trim().split(/\s+/).filter(Boolean).length;
+      const mins = Math.max(1, Math.round(words/200));
+      $('stats').textContent = words+' words · ~'+mins+' min';
+    }
+
+    $('bookmarkBtn').onclick = async () => {
+      if (!currentId) return;
+      const doc = library.find(d=>d.id===currentId);
+      if (!doc) return;
+      if (!doc.bookmarks) doc.bookmarks = [];
+      doc.bookmarks.push({ pos: readerWrapper.scrollTop, page: currentPageIdx, time: new Date().toLocaleString() });
+      await idbPut(doc);
+      alert('Bookmark saved ('+doc.bookmarks.length+' total)');
+    };
+
+    $('notesBtn').onclick = () => {
+      if (!currentId) return;
+      const doc = library.find(d=>d.id===currentId);
+      $('notesText').value = doc?.notes || '';
+      $('notesModal').classList.add('show');
+    };
+    $('notesCancel').onclick = () => $('notesModal').classList.remove('show');
+    $('notesSave').onclick = async () => {
+      const doc = library.find(d=>d.id===currentId);
+      if (doc){ doc.notes = $('notesText').value; await idbPut(doc); }
+      $('notesModal').classList.remove('show');
+    };
+
+    $('copyBtn').onclick = () => {
+      if (!currentText) return;
+      navigator.clipboard.writeText(currentText).then(()=>alert('Copied!')).catch(()=>alert('Copy failed'));
+    };
+
+    $('exportBtn').onclick = async () => {
+      const data = JSON.stringify(library, null, 2);
+      const blob = new Blob([data], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'pdf-library-backup.json';
+      a.click();
+    };
+    $('importBtn').onclick = () => $('importFile').click();
+    $('importFile').onchange = async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const docs = JSON.parse(text);
+        for (const d of docs) {
+          if (!d.highlights) d.highlights = [];
+          if (!d.folder) d.folder = '';
+          await idbPut(d);
+        }
+        library = await idbGetAll();
+        sortLibrary();
+        renderFolders();
+        renderLibrary();
+        alert('Imported '+docs.length+' documents');
+      } catch(err){ alert('Import failed'); }
+      e.target.value = '';
+    };
+
+    $('ttsPlay').onclick = () => {
+      if (!currentText) return;
+      speechSynthesis.cancel();
+      let chunk = currentText;
+      if (pageMode && pages[currentPageIdx]) chunk = pages[currentPageIdx].content;
+      chunk = chunk.slice(0, 12000);
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.rate = 0.95;
+      u.onend = () => { isSpeaking=false; clearInterval(autoScrollInterval); };
+      u.onerror = () => { isSpeaking=false; clearInterval(autoScrollInterval); };
+      speechSynthesis.speak(u);
+      isSpeaking = true;
+      clearInterval(autoScrollInterval);
+      if (!pageMode) {
+        autoScrollInterval = setInterval(() => { if(isSpeaking) readerWrapper.scrollBy(0, 1.0); }, 100);
+      }
+    };
+    $('ttsPause').onclick = () => { if (speechSynthesis.speaking) speechSynthesis.pause(); };
+    $('ttsStop').onclick = () => { speechSynthesis.cancel(); isSpeaking=false; clearInterval(autoScrollInterval); };
+
+    loadLibrary().catch(()=> statusEl.textContent='Ready');
+  </script>
+</body>
+</html>
