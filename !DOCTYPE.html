@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>PDF Library – Free Reader</title>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs" type="module"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --border: #e2e8f0;
+      --highlight: #fde047;
+      --reader-max: 720px;
+      --line-height: 1.7;
+      --font-size: 17px;
+      --margin: 24px;
+    }
+    [data-theme="dark"] {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --border: #334155;
+      --highlight: #a16207;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      z-index: 30;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; white-space: nowrap; }
+    .controls { display: flex; gap: 6px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+    button, .btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .main { display: flex; flex: 1; overflow: hidden; position: relative; }
+    .sidebar {
+      width: 280px;
+      background: var(--card);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: transform 0.25s ease;
+    }
+    .sidebar-header { padding: 12px; border-bottom: 1px solid var(--border); }
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 0.88rem;
+      color: var(--muted);
+      transition: 0.15s;
+    }
+    .upload-zone:hover, .upload-zone.dragover {
+      border-color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 8%, transparent);
+    }
+    #fileInput { display: none; }
+    .library-list { flex: 1; overflow-y: auto; padding: 8px; }
+    .doc-item {
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-bottom: 4px;
+      font-size: 0.9rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .doc-item:hover, .doc-item.active { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+    .doc-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc-item .delete { opacity: 0.5; font-size: 0.85rem; flex-shrink: 0; }
+    .doc-item .delete:hover { opacity: 1; color: #ef4444; }
+    .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .toolbar {
+      padding: 8px 12px;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    #searchInput {
+      flex: 1;
+      min-width: 140px;
+      padding: 7px 11px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    .reader-wrapper {
+      flex: 1;
+      overflow-y: auto;
+      position: relative;
+    }
+    .reader {
+      max-width: var(--reader-max);
+      margin: 0 auto;
+      padding: var(--margin);
+      line-height: var(--line-height);
+      font-size: var(--font-size);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .reader mark {
+      background: var(--highlight);
+      color: inherit;
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+    .page-marker {
+      display: block;
+      margin: 2.2em 0 1em;
+      padding: 6px 0;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      letter-spacing: 0.03em;
+    }
+    .status-bar {
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      background: var(--card);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .progress-bar-outer {
+      height: 3px;
+      background: var(--border);
+      width: 100%;
+    }
+    .progress-bar-outer > div {
+      height: 100%;
+      background: var(--primary);
+      width: 0%;
+      transition: width 0.2s;
+    }
+    /* Focus / Immersive mode */
+    body.focus-mode header,
+    body.focus-mode .sidebar,
+    body.focus-mode .toolbar {
+      display: none !important;
+    }
+    body.focus-mode .status-bar { opacity: 0.7; }
+    body.focus-mode .reader { max-width: 680px; }
+    .menu-btn { display: none; }
+    @media (max-width: 768px) {
+      .sidebar {
+        position: absolute;
+        left: 0; top: 0; bottom: 0;
+        z-index: 40;
+        transform: translateX(-100%);
+        box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .menu-btn { display: inline-flex !important; }
+    }
+    .empty {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .settings-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      font-size: 0.85rem;
+    }
+    select, input[type="range"] {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 6px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <button class="menu-btn secondary" id="menuBtn">☰</button>
+    <h1>📚 PDF Library</h1>
+    <div class="controls">
+      <button class="secondary" id="focusBtn" title="Focus mode">Focus</button>
+      <button class="secondary" id="fontDown">A−</button>
+      <button class="secondary" id="fontUp">A+</button>
+      <button class="secondary" id="themeBtn">🌓</button>
+      <button id="ttsPlay">🔊</button>
+      <button class="secondary" id="ttsPause">⏸</button>
+      <button class="secondary" id="ttsStop">⏹</button>
+    </div>
+  </header>
+
+  <div class="progress-bar-outer"><div id="extractProgress"></div></div>
+
+  <div class="main">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="upload-zone" id="uploadZone">
+          📄 Drop PDF here<br>or click to upload
+          <div style="font-size:0.75rem;margin-top:4px;opacity:0.8">Multiple files supported</div>
+        </div>
+        <input type="file" id="fileInput" accept="application/pdf" multiple />
+      </div>
+      <div class="library-list" id="libraryList"></div>
+    </aside>
+
+    <div class="content-area">
+      <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="Search in document…" />
+        <button class="secondary" id="clearSearch">Clear</button>
+        <button class="secondary" id="downloadTxt">⬇ TXT</button>
+        <div class="settings-row">
+          <label>Space <input type="range" id="lineHeight" min="1.3" max="2.2" step="0.1" value="1.7" style="width:70px"></label>
+          <label>Margin <input type="range" id="marginRange" min="12" max="48" step="4" value="24" style="width:70px"></label>
+          <select id="highlightColor">
+            <option value="#fde047">Yellow</option>
+            <option value="#86efac">Green</option>
+            <option value="#93c5fd">Blue</option>
+            <option value="#f9a8d4">Pink</option>
+            <option value="#fdba74">Orange</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="reader-wrapper" id="readerWrapper">
+        <div class="reader" id="reader">
+          <div class="empty">
+            Upload a PDF to start reading.<br>
+            Everything stays on your device.<br><br>
+            <small>Now using IndexedDB – much larger storage</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <span id="status">Ready</span>
+        <span id="progressPercent">0% read</span>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+
+    // ========== IndexedDB ==========
+    const DB_NAME = 'PDFLibraryDB';
+    const DB_VERSION = 1;
+    const STORE = 'documents';
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE)) {
+            db.createObjectStore(STORE, { keyPath: 'id' });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function idbGetAll() {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const store = tx.objectStore(STORE);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function idbPut(doc) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(doc);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function idbDelete(id) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    // ========== State ==========
+    let library = [];
+    let currentId = null;
+    let currentText = '';
+    let fontSize = parseInt(localStorage.getItem('fontSize') || '17');
+    let isSpeaking = false;
+    let utterance = null;
+    let autoScrollInterval = null;
+
+    // ========== DOM ==========
+    const reader = document.getElementById('reader');
+    const readerWrapper = document.getElementById('readerWrapper');
+    const libraryList = document.getElementById('libraryList');
+    const statusEl = document.getElementById('status');
+    const progressPercent = document.getElementById('progressPercent');
+    const extractProgress = document.getElementById('extractProgress');
+    const searchInput = document.getElementById('searchInput');
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+    const sidebar = document.getElementById('sidebar');
+
+    // ========== Theme & Font ==========
+    function applyTheme() {
+      const theme = localStorage.getItem('theme') || 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+    applyTheme();
+    document.getElementById('themeBtn').onclick = () => {
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('theme', next);
+      applyTheme();
+    };
+
+    function applyFont() {
+      document.documentElement.style.setProperty('--font-size', fontSize + 'px');
+      localStorage.setItem('fontSize', fontSize);
+    }
+    applyFont();
+    document.getElementById('fontUp').onclick = () => { fontSize = Math.min(26, fontSize + 1); applyFont(); };
+    document.getElementById('fontDown').onclick = () => { fontSize = Math.max(13, fontSize - 1); applyFont(); };
+
+    // Line height & margin
+    document.getElementById('lineHeight').oninput = (e) => {
+      document.documentElement.style.setProperty('--line-height', e.target.value);
+    };
+    document.getElementById('marginRange').oninput = (e) => {
+      document.documentElement.style.setProperty('--margin', e.target.value + 'px');
+    };
+    document.getElementById('highlightColor').onchange = (e) => {
+      document.documentElement.style.setProperty('--highlight', e.target.value);
+    };
+
+    // Focus mode
+    document.getElementById('focusBtn').onclick = () => {
+      document.body.classList.toggle('focus-mode');
+      document.getElementById('focusBtn').textContent =
+        document.body.classList.contains('focus-mode') ? 'Exit Focus' : 'Focus';
+    };
+
+    // Mobile menu
+    document.getElementById('menuBtn').onclick = () => sidebar.classList.toggle('open');
+
+    // ========== Library ==========
+    async function loadLibrary() {
+      // Migrate from old localStorage if exists
+      const old = localStorage.getItem('pdfLibrary');
+      if (old) {
+        try {
+          const oldDocs = JSON.parse(old);
+          for (const doc of oldDocs) {
+            await idbPut(doc);
+          }
+          localStorage.removeItem('pdfLibrary');
+          console.log('Migrated', oldDocs.length, 'documents from localStorage');
+        } catch (e) { console.warn('Migration failed', e); }
+      }
+      library = await idbGetAll();
+      library.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+      renderLibrary();
+      if (library.length > 0) openDocument(library[0].id);
+    }
+
+    function renderLibrary() {
+      libraryList.innerHTML = '';
+      if (library.length === 0) {
+        libraryList.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:0.9rem;">No documents yet</div>';
+        return;
+      }
+      library.forEach(doc => {
+        const div = document.createElement('div');
+        div.className = 'doc-item' + (doc.id === currentId ? ' active' : '');
+        div.innerHTML = `
+          <span class="name" title="${doc.name}">${doc.name}</span>
+          <span class="delete" data-id="${doc.id}">✕</span>
+        `;
+        div.onclick = async (e) => {
+          if (e.target.classList.contains('delete')) {
+            if (confirm('Delete this document permanently?')) {
+              await idbDelete(doc.id);
+              library = library.filter(d => d.id !== doc.id);
+              if (currentId === doc.id) {
+                currentId = null;
+                currentText = '';
+                reader.innerHTML = '<div class="empty">Document deleted.</div>';
+                progressPercent.textContent = '0% read';
+              }
+              renderLibrary();
+            }
+            return;
+          }
+          openDocument(doc.id);
+          sidebar.classList.remove('open');
+        };
+        libraryList.appendChild(div);
+      });
+    }
+
+    // ========== Clean text ==========
+    function cleanPdfText(items) {
+      if (!items?.length) return '';
+      const sorted = [...items].sort((a, b) => {
+        const yA = a.transform[5], yB = b.transform[5];
+        if (Math.abs(yA - yB) > 6) return yB - yA;
+        return a.transform[4] - b.transform[4];
+      });
+      let text = '', lastY = null, lastX = 0;
+      for (const item of sorted) {
+        const str = item.str;
+        if (!str?.trim()) continue;
+        const y = item.transform[5];
+        const x = item.transform[4];
+        if (lastY !== null && Math.abs(y - lastY) > 9) text += '\n\n';
+        else if (lastY !== null && x - lastX > 12) text += ' ';
+        text += str;
+        lastY = y;
+        lastX = x + (item.width || 0);
+      }
+      return text.replace(/\n{3,}/g, '\n\n').trim();
+    }
+
+    // ========== Extraction ==========
+    async function extractTextFromPDF(file, onProgress) {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const numPages = pdf.numPages;
+      let fullText = '';
+      const worker = await Tesseract.createWorker('eng');
+
+      for (let i = 1; i <= numPages; i++) {
+        onProgress(i / numPages, `Page ${i} / ${numPages}`);
+        const page = await pdf.getPage(i);
+        let pageText = '';
+
+        try {
+          const content = await page.getTextContent();
+          pageText = cleanPdfText(content.items);
+        } catch (e) {}
+
+        if (pageText.replace(/\s/g, '').length < 45) {
+          const scale = 2.0;
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+          const { data: { text } } = await worker.recognize(canvas);
+          pageText = text.trim();
+        }
+
+        fullText += (fullText ? '\n\n' : '') + `--- Page ${i} ---\n\n` + pageText;
+      }
+      await worker.terminate();
+      return fullText;
+    }
+
+    // ========== Upload ==========
+    uploadZone.onclick = () => fileInput.click();
+    uploadZone.ondragover = e => { e.preventDefault(); uploadZone.classList.add('dragover'); };
+    uploadZone.ondragleave = () => uploadZone.classList.remove('dragover');
+    uploadZone.ondrop = e => {
+      e.preventDefault();
+      uploadZone.classList.remove('dragover');
+      handleFiles(e.dataTransfer.files);
+    };
+    fileInput.onchange = e => handleFiles(e.target.files);
+
+    async function handleFiles(files) {
+      for (const file of files) {
+        if (file.type !== 'application/pdf') continue;
+        statusEl.textContent = `Processing ${file.name}…`;
+        extractProgress.style.width = '0%';
+
+        try {
+          const text = await extractTextFromPDF(file, (p, msg) => {
+            extractProgress.style.width = (p * 100) + '%';
+            statusEl.textContent = msg;
+          });
+
+          const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+          const doc = {
+            id,
+            name: file.name.replace(/\.pdf$/i, ''),
+            text,
+            lastPosition: 0,
+            created: new Date().toISOString()
+          };
+          await idbPut(doc);
+          library.unshift(doc);
+          renderLibrary();
+          openDocument(id);
+          statusEl.textContent = `Loaded: ${doc.name}`;
+        } catch (err) {
+          console.error(err);
+          statusEl.textContent = 'Error processing PDF';
+          alert('Failed to process this PDF.\n' + err.message);
+        }
+        extractProgress.style.width = '0%';
+      }
+      fileInput.value = '';
+    }
+
+    // ========== Open & Render ==========
+    function openDocument(id) {
+      const doc = library.find(d => d.id === id);
+      if (!doc) return;
+      currentId = id;
+      currentText = doc.text;
+      renderText(currentText);
+      setTimeout(() => {
+        readerWrapper.scrollTop = doc.lastPosition || 0;
+        updateProgress();
+      }, 60);
+      renderLibrary();
+      statusEl.textContent = doc.name;
+    }
+
+    function renderText(text, query = '') {
+      if (!text) {
+        reader.innerHTML = '<div class="empty">No text extracted.</div>';
+        return;
+      }
+      // Turn page markers into styled elements
+      let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/--- Page (\d+) ---/g, '<div class="page-marker">PAGE $1</div>');
+
+      if (query) {
+        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${escaped})`, 'gi');
+        html = html.replace(regex, '<mark>$1</mark>');
+      }
+      reader.innerHTML = html;
+    }
+
+    // Remember position + progress %
+    let scrollTimer;
+    readerWrapper.addEventListener('scroll', () => {
+      if (!currentId) return;
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(async () => {
+        const doc = library.find(d => d.id === currentId);
+        if (doc) {
+          doc.lastPosition = readerWrapper.scrollTop;
+          await idbPut(doc);
+        }
+        updateProgress();
+      }, 300);
+    });
+
+    function updateProgress() {
+      const el = readerWrapper;
+      if (el.scrollHeight <= el.clientHeight) {
+        progressPercent.textContent = '100% read';
+        return;
+      }
+      const pct = Math.min(100, Math.round((el.scrollTop / (el.scrollHeight - el.clientHeight)) * 100));
+      progressPercent.textContent = pct + '% read';
+    }
+
+    // Search
+    searchInput.addEventListener('input', () => {
+      renderText(currentText, searchInput.value.trim());
+    });
+    document.getElementById('clearSearch').onclick = () => {
+      searchInput.value = '';
+      renderText(currentText);
+    };
+
+    // Download
+    document.getElementById('downloadTxt').onclick = () => {
+      if (!currentText) return;
+      const blob = new Blob([currentText], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (library.find(d => d.id === currentId)?.name || 'document') + '.txt';
+      a.click();
+    };
+
+    // ========== Text-to-Speech + Auto-scroll ==========
+    document.getElementById('ttsPlay').onclick = () => {
+      if (!currentText || isSpeaking) return;
+      speechSynthesis.cancel();
+      utterance = new SpeechSynthesisUtterance(currentText.slice(0, 20000));
+      utterance.rate = 0.95;
+      utterance.onend = () => {
+        isSpeaking = false;
+        clearInterval(autoScrollInterval);
+      };
+      speechSynthesis.speak(utterance);
+      isSpeaking = true;
+
+      // Simple auto-scroll while speaking
+      clearInterval(autoScrollInterval);
+      autoScrollInterval = setInterval(() => {
+        if (!isSpeaking) return;
+        readerWrapper.scrollBy({ top: 1.2, behavior: 'auto' });
+      }, 80);
+    };
+    document.getElementById('ttsPause').onclick = () => {
+      if (speechSynthesis.speaking) speechSynthesis.pause();
+    };
+    document.getElementById('ttsStop').onclick = () => {
+      speechSynthesis.cancel();
+      isSpeaking = false;
+      clearInterval(autoScrollInterval);
+    };
+
+    // Init
+    loadLibrary().catch(err => {
+      console.error(err);
+      statusEl.textContent = 'Storage error – try refreshing';
+    });
+  </script>
+</body>
+</html>
