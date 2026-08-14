@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="PDF Library" />
+  <meta name="description" content="Free private PDF to text reader." />
+  <title>PDF Library</title>
+  <link rel="manifest" href="data:application/json,{"name":"PDF Library","short_name":"PDF Lib","start_url":".","display":"standalone","background_color":"#f1f5f9","theme_color":"#2563eb","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%232563eb' width='100' height='100' rx='20'/%3E%3Ctext y='68' x='50' text-anchor='middle' font-size='55'%3E📚%3C/text%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml"}]}" />
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --bg: #f1f5f9; --card: #ffffff; --text: #0f172a; --muted: #64748b;
+      --primary: #2563eb; --border: #e2e8f0; --highlight: #fde047;
+      --reader-max: 720px; --line-height: 1.75; --font-size: 17px; --margin: 20px;
+      --radius: 12px; --header-h: 56px;
+    }
+    [data-theme="dark"] {
+      --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --muted: #94a3b8;
+      --primary: #3b82f6; --border: #334155; --highlight: #a16207;
+    }
+    [data-theme="sepia"] {
+      --bg: #f4ecd8; --card: #faf6eb; --text: #5c4b37; --muted: #8a7a66;
+      --primary: #a67c52; --border: #e0d5c0; --highlight: #e8c56b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* ===== HEADER ===== */
+    header {
+      background: var(--card); border-bottom: 1px solid var(--border);
+      padding: 8px 10px; display: flex; align-items: center; gap: 6px;
+      z-index: 50; min-height: var(--header-h); flex-shrink: 0;
+    }
+    .logo { font-size: 1.25rem; flex-shrink: 0; line-height: 1; }
+    .header-actions {
+      display: flex; gap: 5px; margin-left: auto; align-items: center;
+      flex-wrap: nowrap; overflow: hidden;
+    }
+    .btn {
+      background: var(--primary); color: white; border: none;
+      padding: 8px 12px; border-radius: 10px; font-size: 0.88rem;
+      cursor: pointer; min-height: 40px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn.icon { width: 40px; padding: 0; font-size: 1.1rem; }
+    .btn:active { opacity: 0.85; transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; }
+
+    /* Hide labels / extra buttons by default (mobile-first) */
+    .btn-label { display: none; }
+    .hide-mobile { display: none !important; }
+    .show-mobile { display: inline-flex !important; }
+
+    /* ===== MAIN ===== */
+    .main { display: flex; flex: 1; overflow: hidden; position: relative; min-height: 0; }
+    .sidebar {
+      width: 280px; background: var(--card); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; z-index: 40; flex-shrink: 0;
+    }
+    .sidebar-header { padding: 12px; border-bottom: 1px solid var(--border); }
+    .upload-zone {
+      border: 2px dashed var(--border); border-radius: var(--radius); padding: 16px;
+      text-align: center; cursor: pointer; color: var(--muted); font-size: 0.9rem;
+    }
+    .upload-zone:active { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+    #fileInput { display: none; }
+    .folder-bar { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 6px; flex-wrap: wrap; }
+    .folder-chip {
+      padding: 5px 11px; border-radius: 20px; font-size: 0.78rem; cursor: pointer;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    }
+    .folder-chip.active { background: var(--primary); color: white; border-color: var(--primary); }
+    .lib-tools { padding: 8px 12px; display: flex; gap: 6px; border-bottom: 1px solid var(--border); }
+    .library-list { flex: 1; overflow-y: auto; padding: 8px; -webkit-overflow-scrolling: touch; }
+    .doc-item {
+      padding: 11px; border-radius: 10px; cursor: pointer; margin-bottom: 4px;
+      display: flex; flex-direction: column; gap: 4px; font-size: 0.92rem;
+    }
+    .doc-item.active, .doc-item:active { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+    .doc-row { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+    .doc-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-weight: 500; }
+    .doc-item .meta { font-size: 0.72rem; color: var(--muted); display: flex; gap: 6px; }
+    .doc-progress { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .doc-progress > div { height: 100%; background: var(--primary); width: 0%; }
+    .doc-actions { display: flex; gap: 2px; }
+    .doc-actions span { opacity: 0.55; padding: 5px 7px; font-size: 0.88rem; }
+
+    .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+    /* Toolbar */
+    .toolbar {
+      padding: 8px 10px; background: var(--card); border-bottom: 1px solid var(--border);
+      display: flex; gap: 6px; align-items: center; flex-shrink: 0; flex-wrap: nowrap;
+    }
+    #searchInput {
+      flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--bg); color: var(--text); font-size: 0.95rem;
+    }
+    .toolbar .btn { min-height: 38px; padding: 7px 10px; }
+    .more-wrap { position: relative; flex-shrink: 0; }
+    .more-menu {
+      display: none; position: absolute; right: 0; top: 108%;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15); min-width: 200px; z-index: 60; padding: 6px;
+    }
+    .more-menu.open { display: block; }
+    .more-menu button {
+      width: 100%; text-align: left; background: transparent; color: var(--text);
+      border: none; padding: 11px 14px; border-radius: 8px; font-size: 0.92rem; cursor: pointer;
+    }
+    .more-menu button:active { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+
+    .page-nav {
+      display: none; padding: 8px 10px; background: var(--card); border-bottom: 1px solid var(--border);
+      align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0;
+    }
+    body.page-mode .page-nav { display: flex; }
+    .page-info { font-size: 0.88rem; color: var(--muted); min-width: 72px; text-align: center; }
+
+    .tts-bar {
+      display: none; padding: 8px 10px; background: var(--card); border-bottom: 1px solid var(--border);
+      align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0;
+    }
+    .tts-bar.active { display: flex; }
+    .tts-bar span { font-size: 0.85rem; color: var(--muted); }
+
+    .reader-wrapper { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 0; }
+    .reader {
+      max-width: var(--reader-max); margin: 0 auto; padding: var(--margin);
+      line-height: var(--line-height); font-size: var(--font-size);
+      white-space: pre-wrap; word-wrap: break-word;
+    }
+    .reader mark { background: var(--highlight); padding: 0 2px; border-radius: 2px; }
+    .reader mark.current { outline: 2px solid var(--primary); background: #fbbf24; }
+    .reader .saved-hl { background: #86efac; border-radius: 2px; padding: 0 2px; }
+    [data-theme="sepia"] .reader .saved-hl { background: #d4c48a; }
+    .page-marker {
+      display: block; margin: 1.5em 0 0.6em; padding-bottom: 5px;
+      font-size: 0.72rem; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--border);
+      letter-spacing: 0.04em;
+    }
+    .status-bar {
+      padding: 7px 12px; font-size: 0.78rem; color: var(--muted);
+      border-top: 1px solid var(--border); background: var(--card);
+      display: flex; justify-content: space-between; gap: 6px; flex-wrap: wrap; flex-shrink: 0;
+    }
+    .progress-bar-outer { height: 3px; background: var(--border); flex-shrink: 0; }
+    .progress-bar-outer > div { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s; }
+
+    body.focus-mode header,
+    body.focus-mode .sidebar,
+    body.focus-mode .toolbar,
+    body.focus-mode .page-nav,
+    body.focus-mode .tts-bar { display: none !important; }
+    body.focus-mode .status-bar { opacity: 0.5; }
+    .focus-exit {
+      display: none; position: fixed; top: 12px; right: 12px; z-index: 200;
+      background: var(--primary); color: white; border: none; padding: 11px 16px;
+      border-radius: 12px; font-size: 0.9rem; font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    body.focus-mode .focus-exit { display: block; }
+
+    .menu-btn { display: none; }
+    .empty { text-align: center; padding: 48px 20px; color: var(--muted); line-height: 1.7; font-size: 0.98rem; }
+    .empty b { color: var(--primary); }
+    .empty .tip { margin-top: 14px; font-size: 0.82rem; opacity: 0.85; }
+
+    .modal-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100;
+      display: none; align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal-bg.show { display: flex; }
+    .modal {
+      background: var(--card); border-radius: 16px; padding: 20px; width: 100%; max-width: 400px;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .modal h3 { margin-bottom: 12px; font-size: 1.1rem; }
+    .modal textarea, .modal input[type="text"] {
+      width: 100%; padding: 11px; border: 1px solid var(--border); border-radius: 10px;
+      background: var(--bg); color: var(--text); margin-bottom: 10px; font-size: 1rem;
+    }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .hl-list { max-height: 200px; overflow-y: auto; margin-bottom: 10px; }
+    .hl-item {
+      padding: 11px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px;
+      font-size: 0.88rem; cursor: pointer;
+    }
+    .hl-item:active { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+    select {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 7px; font-size: 0.85rem;
+    }
+
+    /* ========== MOBILE (< 640px) ========== */
+    @media (max-width: 639px) {
+      .menu-btn { display: inline-flex !important; }
+      .sidebar {
+        position: absolute; left: 0; top: 0; bottom: 0; width: 86%; max-width: 300px;
+        transform: translateX(-100%); transition: transform 0.25s ease;
+        box-shadow: 4px 0 28px rgba(0,0,0,0.2);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .hide-mobile { display: none !important; }
+      .show-mobile { display: inline-flex !important; }
+      header { padding: 7px 8px; gap: 5px; }
+      .btn { min-height: 38px; padding: 7px 10px; font-size: 0.85rem; }
+      .btn.icon { width: 38px; }
+      .header-actions { gap: 4px; }
+      /* On very small screens hide some header icons; they stay in More menu */
+      .hdr-extra { display: none !important; }
+    }
+
+    /* ========== TABLET (640px – 1023px) ========== */
+    @media (min-width: 640px) and (max-width: 1023px) {
+      .menu-btn { display: inline-flex !important; }
+      .sidebar {
+        position: absolute; left: 0; top: 0; bottom: 0; width: 300px;
+        transform: translateX(-100%); transition: transform 0.25s ease;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.15);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .hide-mobile { display: inline-flex !important; }
+      .show-mobile { display: none !important; }
+      .btn-label { display: inline; }
+      .hdr-extra { display: inline-flex !important; }
+    }
+
+    /* ========== DESKTOP (≥ 1024px) ========== */
+    @media (min-width: 1024px) {
+      .menu-btn { display: none !important; }
+      .sidebar {
+        position: relative; transform: none !important;
+        width: 300px; box-shadow: none;
+      }
+      .hide-mobile { display: inline-flex !important; }
+      .show-mobile { display: none !important; }
+      .btn-label { display: inline; }
+      .hdr-extra { display: inline-flex !important; }
+      header { padding: 10px 16px; }
+      .toolbar { padding: 10px 16px; }
+      .reader { --margin: 28px; }
+    }
+
+    /* Large desktop */
+    @media (min-width: 1280px) {
+      .sidebar { width: 320px; }
+      :root { --reader-max: 780px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <button class="btn ghost icon menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+    <div class="logo" title="PDF Library">📚</div>
+    <div class="header-actions">
+      <button class="btn" id="headerUploadBtn"><span class="btn-label">+ </span>Upload</button>
+      <button class="btn ghost icon" id="focusBtn" title="Focus">👁</button>
+      <button class="btn ghost icon hdr-extra" id="pageModeBtn" title="Pages">📄</button>
+      <button class="btn ghost icon" id="themeBtn" title="Theme">🌓</button>
+      <button class="btn icon" id="ttsPlay" title="Read aloud">🔊</button>
+      <button class="btn ghost icon hdr-extra" id="ttsStop" title="Stop">⏹</button>
+    </div>
+  </header>
+
+  <button class="focus-exit" id="focusExitBtn">Exit Focus</button>
+  <div class="progress-bar-outer"><div id="extractProgress"></div></div>
+
+  <div class="main">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="upload-zone" id="uploadZone">📄 Tap to upload PDF</div>
+        <input type="file" id="fileInput" accept="application/pdf" multiple />
+      </div>
+      <div class="folder-bar" id="folderBar"></div>
+      <div class="lib-tools">
+        <select id="sortSelect" style="flex:1">
+          <option value="recent">Recently read</option>
+          <option value="name">Name</option>
+          <option value="date">Date added</option>
+        </select>
+        <button class="btn ghost icon" id="exportBtn" title="Export">⬆</button>
+        <button class="btn ghost icon" id="importBtn" title="Import">⬇</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" />
+      </div>
+      <div class="library-list" id="libraryList"></div>
+    </aside>
+
+    <div class="content-area">
+      <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="Search…" autocomplete="off" />
+        <button class="btn ghost icon" id="searchPrev" title="Previous">↑</button>
+        <button class="btn ghost icon" id="searchNext" title="Next">↓</button>
+        <button class="btn ghost hide-mobile" id="clearSearch">Clear</button>
+        <div class="more-wrap">
+          <button class="btn ghost" id="moreBtn">More ▾</button>
+          <div class="more-menu" id="moreMenu">
+            <button id="pageModeMenuBtn">Toggle Pages mode</button>
+            <button id="highlightBtn">Highlight selection</button>
+            <button id="highlightsListBtn">View highlights</button>
+            <button id="bookmarkBtn">Add bookmark</button>
+            <button id="notesBtn">Notes</button>
+            <button id="copyBtn">Copy all text</button>
+            <button id="fontDown">Smaller text (A−)</button>
+            <button id="fontUp">Larger text (A+)</button>
+            <button id="widthToggle">Toggle width</button>
+            <button id="themeCycle">Cycle theme</button>
+            <button id="ttsStopMenu">Stop speech</button>
+            <button id="clearSearchMenu">Clear search</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tts-bar" id="ttsBar">
+        <span id="ttsStatus">Speaking…</span>
+        <button class="btn ghost" id="ttsPauseBtn">Pause</button>
+        <button class="btn ghost" id="ttsResumeBtn">Resume</button>
+      </div>
+
+      <div class="page-nav" id="pageNav">
+        <button class="btn ghost" id="prevPage">← Prev</button>
+        <span class="page-info" id="pageInfo">Page 1 / 1</span>
+        <button class="btn ghost" id="nextPage">Next →</button>
+        <input type="number" id="gotoPage" min="1" placeholder="#" style="width:52px;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);text-align:center;" />
+        <button class="btn ghost" id="gotoBtn">Go</button>
+      </div>
+
+      <div class="reader-wrapper" id="readerWrapper">
+        <div class="reader" id="reader">
+          <div class="empty">
+            Tap <b>+ Upload</b> to add a PDF.<br>
+            Everything stays on your device.
+            <div class="tip">Tip: On phone → browser menu → “Add to Home Screen”.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <span id="status">Ready</span>
+        <span id="stats"></span>
+        <span id="progressPercent">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="notesModal">
+    <div class="modal">
+      <h3>Notes</h3>
+      <textarea id="notesText" rows="6" placeholder="Write notes…"></textarea>
+      <div class="modal-actions">
+        <button class="btn ghost" id="notesCancel">Cancel</button>
+        <button class="btn" id="notesSave">Save</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-bg" id="renameModal">
+    <div class="modal">
+      <h3>Rename / Folder</h3>
+      <input type="text" id="renameInput" placeholder="Document name" />
+      <input type="text" id="folderInput" placeholder="Folder (Study, Work…)" />
+      <div class="modal-actions">
+        <button class="btn ghost" id="renameCancel">Cancel</button>
+        <button class="btn" id="renameSave">Save</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-bg" id="highlightsModal">
+    <div class="modal">
+      <h3>Saved Highlights</h3>
+      <div class="hl-list" id="hlList"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="hlClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+
+    const DB_NAME = 'PDFLibraryDB', STORE = 'documents';
+    let library = [], currentId = null, currentText = '', fontSize = +(localStorage.getItem('fontSize')||17);
+    let searchMatches = [], currentMatch = -1, isSpeaking = false, autoScrollInterval = null;
+    let renameTargetId = null, currentFolder = 'All';
+    let pages = [], currentPageIdx = 0, pageMode = false;
+    let widthIdx = 1;
+    const widths = ['560px','720px','900px'];
+    const themes = ['light','dark','sepia'];
+
+    const $ = id => document.getElementById(id);
+    const reader = $('reader'), readerWrapper = $('readerWrapper');
+    const libraryList = $('libraryList'), statusEl = $('status');
+    const progressPercent = $('progressPercent'), extractProgress = $('extractProgress');
+    const searchInput = $('searchInput'), sidebar = $('sidebar');
+
+    function openDB() {
+      return new Promise((res, rej) => {
+        const r = indexedDB.open(DB_NAME, 1);
+        r.onupgradeneeded = e => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+        };
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+    }
+    async function idbGetAll() {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const r = db.transaction(STORE,'readonly').objectStore(STORE).getAll();
+        r.onsuccess = () => res(r.result||[]);
+        r.onerror = () => rej(r.error);
+      });
+    }
+    async function idbPut(doc) {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).put(doc);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+    }
+    async function idbDelete(id) {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+    }
+
+    function applyTheme(t) {
+      if (t === 'light') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', t);
+      localStorage.setItem('theme', t);
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.content = t === 'dark' ? '#0f172a' : t === 'sepia' ? '#a67c52' : '#2563eb';
+    }
+    applyTheme(localStorage.getItem('theme') || 'light');
+
+    $('themeBtn').onclick = () => {
+      const cur = localStorage.getItem('theme') || 'light';
+      applyTheme(themes[(themes.indexOf(cur) + 1) % themes.length]);
+    };
+    $('themeCycle').onclick = () => { $('themeBtn').click(); closeMore(); };
+
+    $('menuBtn').onclick = () => sidebar.classList.toggle('open');
+    // Close sidebar when tapping outside on mobile/tablet
+    document.querySelector('.content-area').addEventListener('click', () => {
+      if (window.innerWidth < 1024) sidebar.classList.remove('open');
+    });
+
+    function applyFont(){ document.documentElement.style.setProperty('--font-size', fontSize+'px'); localStorage.setItem('fontSize', fontSize); }
+    applyFont();
+    $('fontUp').onclick = () => { fontSize = Math.min(26, fontSize+1); applyFont(); closeMore(); };
+    $('fontDown').onclick = () => { fontSize = Math.max(13, fontSize-1); applyFont(); closeMore(); };
+    $('widthToggle').onclick = () => {
+      widthIdx = (widthIdx + 1) % 3;
+      document.documentElement.style.setProperty('--reader-max', widths[widthIdx]);
+      closeMore();
+    };
+
+    function setFocusMode(on) { document.body.classList.toggle('focus-mode', on); }
+    $('focusBtn').onclick = () => setFocusMode(!document.body.classList.contains('focus-mode'));
+    $('focusExitBtn').onclick = () => setFocusMode(false);
+
+    function togglePageMode() {
+      pageMode = !pageMode;
+      document.body.classList.toggle('page-mode', pageMode);
+      if (pageMode && pages.length) showPage(currentPageIdx);
+      else if (currentText) renderText(currentText, searchInput.value.trim());
+    }
+    $('pageModeBtn').onclick = togglePageMode;
+    $('pageModeMenuBtn').onclick = () => { togglePageMode(); closeMore(); };
+
+    const moreMenu = $('moreMenu');
+    function closeMore() { moreMenu.classList.remove('open'); }
+    $('moreBtn').onclick = (e) => { e.stopPropagation(); moreMenu.classList.toggle('open'); };
+    document.addEventListener('click', () => closeMore());
+
+    $('uploadZone').onclick = () => $('fileInput').click();
+    $('headerUploadBtn').onclick = () => $('fileInput').click();
+    $('fileInput').onchange = e => handleFiles(e.target.files);
+
+    function cleanPdfText(items) {
+      if (!items?.length) return '';
+      const sorted = [...items].sort((a,b) => {
+        const yA=a.transform[5], yB=b.transform[5];
+        if (Math.abs(yA-yB)>6) return yB-yA;
+        return a.transform[4]-b.transform[4];
+      });
+      let text='', lastY=null, lastX=0;
+      for (const it of sorted) {
+        const s = it.str; if (!s?.trim()) continue;
+        const y=it.transform[5], x=it.transform[4];
+        if (lastY!==null && Math.abs(y-lastY)>9) text+='\n\n';
+        else if (lastY!==null && x-lastX>12) text+=' ';
+        text+=s; lastY=y; lastX=x+(it.width||0);
+      }
+      return text.replace(/\n{3,}/g,'\n\n').trim();
+    }
+
+    async function extractTextFromPDF(file, onProgress) {
+      const buf = await file.arrayBuffer();
+      const task = pdfjsLib.getDocument({ data: buf });
+      task.onPassword = (cb, reason) => {
+        const msg = reason===1 ? 'Password required:' : 'Wrong password, try again:';
+        const p = prompt(msg);
+        if (p) cb(p); else throw new Error('Password required');
+      };
+      const pdf = await task.promise;
+      let full = '';
+      const worker = await Tesseract.createWorker('eng');
+      for (let i=1; i<=pdf.numPages; i++) {
+        onProgress(i/pdf.numPages, 'Page '+i+'/'+pdf.numPages);
+        const page = await pdf.getPage(i);
+        let pageText = '';
+        try {
+          const content = await page.getTextContent();
+          pageText = cleanPdfText(content.items);
+        } catch(e){}
+        if (pageText.replace(/\s/g,'').length < 40) {
+          const vp = page.getViewport({scale:1.8});
+          const canvas = document.createElement('canvas');
+          canvas.width=vp.width; canvas.height=vp.height;
+          await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
+          const {data:{text}} = await worker.recognize(canvas);
+          pageText = text.trim();
+        }
+        full += (full?'\n\n':'') + '--- Page '+i+' ---\n\n' + pageText;
+      }
+      await worker.terminate();
+      return full;
+    }
+
+    async function handleFiles(files) {
+      for (const file of files) {
+        if (file.type !== 'application/pdf') continue;
+        statusEl.textContent = 'Processing…';
+        extractProgress.style.width = '0%';
+        sidebar.classList.remove('open');
+        try {
+          const text = await extractTextFromPDF(file, (p,msg) => {
+            extractProgress.style.width = (p*100)+'%';
+            statusEl.textContent = msg;
+          });
+          const id = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+          const doc = {
+            id, name: file.name.replace(/\.pdf$/i,''), text,
+            lastPosition:0, progressPct:0, bookmarks:[], notes:'', highlights:[],
+            folder: '', created:new Date().toISOString(), lastRead:new Date().toISOString()
+          };
+          await idbPut(doc);
+          library.unshift(doc);
+          renderFolders(); renderLibrary(); openDocument(id);
+          statusEl.textContent = 'Loaded: '+doc.name;
+        } catch(err) {
+          alert('Failed: '+(err.message||err));
+          statusEl.textContent = 'Error';
+        }
+        extractProgress.style.width = '0%';
+      }
+      $('fileInput').value = '';
+    }
+
+    function getFolders() {
+      const set = new Set();
+      library.forEach(d => { if (d.folder) set.add(d.folder); });
+      return ['All', ...Array.from(set).sort()];
+    }
+    function renderFolders() {
+      const bar = $('folderBar');
+      bar.innerHTML = '';
+      getFolders().forEach(f => {
+        const chip = document.createElement('span');
+        chip.className = 'folder-chip' + (f === currentFolder ? ' active' : '');
+        chip.textContent = f;
+        chip.onclick = () => { currentFolder = f; renderFolders(); renderLibrary(); };
+        bar.appendChild(chip);
+      });
+    }
+
+    async function loadLibrary() {
+      try {
+        const old = localStorage.getItem('pdfLibrary');
+        if (old) {
+          for (const d of JSON.parse(old)) {
+            if (!d.highlights) d.highlights = [];
+            if (!d.folder) d.folder = '';
+            if (d.progressPct == null) d.progressPct = 0;
+            await idbPut(d);
+          }
+          localStorage.removeItem('pdfLibrary');
+        }
+      } catch(e){}
+      library = await idbGetAll();
+      library.forEach(d => {
+        if (!d.highlights) d.highlights = [];
+        if (!d.folder) d.folder = '';
+        if (d.progressPct == null) d.progressPct = 0;
+      });
+      sortLibrary(); renderFolders(); renderLibrary();
+      if (library.length) openDocument(library[0].id);
+    }
+
+    function sortLibrary() {
+      const mode = $('sortSelect').value;
+      if (mode==='name') library.sort((a,b)=>a.name.localeCompare(b.name));
+      else if (mode==='date') library.sort((a,b)=>(b.created||'').localeCompare(a.created||''));
+      else library.sort((a,b)=>(b.lastRead||'').localeCompare(a.lastRead||''));
+    }
+    $('sortSelect').onchange = () => { sortLibrary(); renderLibrary(); };
+
+    function renderLibrary() {
+      libraryList.innerHTML = '';
+      const filtered = currentFolder === 'All' ? library : library.filter(d => d.folder === currentFolder);
+      if (!filtered.length) {
+        libraryList.innerHTML = '<div style="padding:16px;color:var(--muted)">No documents</div>';
+        return;
+      }
+      filtered.forEach(doc => {
+        const div = document.createElement('div');
+        div.className = 'doc-item'+(doc.id===currentId?' active':'');
+        const pct = Math.min(100, Math.max(0, doc.progressPct||0));
+        const folderTag = doc.folder ? '['+doc.folder+'] ' : '';
+        div.innerHTML = `
+          <div class="doc-row">
+            <span class="name">${doc.name}</span>
+            <div class="doc-actions"><span class="rename">✎</span><span class="delete">✕</span></div>
+          </div>
+          <div class="meta">${folderTag}${pct}% read</div>
+          <div class="doc-progress"><div style="width:${pct}%"></div>`;
+        div.onclick = async e => {
+          if (e.target.classList.contains('delete')) {
+            if (confirm('Delete permanently?')) {
+              await idbDelete(doc.id);
+              library = library.filter(d=>d.id!==doc.id);
+              if (currentId===doc.id){ currentId=null; currentText=''; reader.innerHTML='<div class="empty">Deleted</div>'; }
+              renderFolders(); renderLibrary();
+            }
+            return;
+          }
+          if (e.target.classList.contains('rename')) {
+            renameTargetId = doc.id;
+            $('renameInput').value = doc.name;
+            $('folderInput').value = doc.folder || '';
+            $('renameModal').classList.add('show');
+            return;
+          }
+          openDocument(doc.id);
+          sidebar.classList.remove('open');
+        };
+        libraryList.appendChild(div);
+      });
+    }
+
+    $('renameCancel').onclick = () => $('renameModal').classList.remove('show');
+    $('renameSave').onclick = async () => {
+      const doc = library.find(d=>d.id===renameTargetId);
+      if (doc) {
+        doc.name = $('renameInput').value.trim() || doc.name;
+        doc.folder = $('folderInput').value.trim();
+        await idbPut(doc);
+        renderFolders(); renderLibrary();
+        if (currentId===doc.id) statusEl.textContent = doc.name;
+      }
+      $('renameModal').classList.remove('show');
+    };
+
+    function openDocument(id) {
+      const doc = library.find(d=>d.id===id);
+      if (!doc) return;
+      currentId = id;
+      currentText = doc.text;
+      doc.lastRead = new Date().toISOString();
+      idbPut(doc);
+      buildPages(currentText);
+      renderText(currentText);
+      setTimeout(()=>{ readerWrapper.scrollTop = doc.lastPosition||0; updateProgress(); updateStats(); }, 40);
+      renderLibrary();
+      statusEl.textContent = doc.name;
+      searchMatches = []; currentMatch = -1;
+      if (pageMode) showPage(0);
+    }
+
+    function buildPages(text) {
+      pages = [];
+      if (!text) return;
+      const parts = text.split(/--- Page (\d+) ---/);
+      for (let i = 1; i < parts.length; i += 2) {
+        pages.push({ num: parts[i], content: (parts[i+1] || '').trim() });
+      }
+      if (pages.length === 0 && text.trim()) pages.push({ num: '1', content: text });
+      currentPageIdx = 0;
+      updatePageInfo();
+    }
+
+    function showPage(idx) {
+      if (!pages.length) return;
+      currentPageIdx = Math.max(0, Math.min(idx, pages.length - 1));
+      const p = pages[currentPageIdx];
+      let html = '<div class="page-marker">PAGE '+p.num+'</div>'+escapeHtml(p.content);
+      const doc = library.find(d => d.id === currentId);
+      if (doc?.highlights?.length) {
+        doc.highlights.forEach(h => {
+          if (h.text) html = html.replace(new RegExp(escapeRegExp(h.text), 'gi'), m => '<span class="saved-hl">'+m+'</span>');
+        });
+      }
+      reader.innerHTML = html;
+      updatePageInfo();
+      readerWrapper.scrollTop = 0;
+      updateProgress();
+    }
+
+    function updatePageInfo() {
+      $('pageInfo').textContent = pages.length ? 'Page '+(currentPageIdx+1)+' / '+pages.length : '—';
+    }
+    $('prevPage').onclick = () => { if (currentPageIdx > 0) showPage(currentPageIdx - 1); };
+    $('nextPage').onclick = () => { if (currentPageIdx < pages.length - 1) showPage(currentPageIdx + 1); };
+    $('gotoBtn').onclick = () => {
+      const n = parseInt($('gotoPage').value, 10);
+      if (n >= 1 && n <= pages.length) showPage(n - 1);
+    };
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function escapeRegExp(str) {
+      return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function renderText(text, query='') {
+      if (!text){ reader.innerHTML='<div class="empty">No text</div>'; return; }
+      if (pageMode) { showPage(currentPageIdx); return; }
+      let html = escapeHtml(text).replace(/--- Page (\d+) ---/g, '<div class="page-marker">PAGE $1</div>');
+      const doc = library.find(d => d.id === currentId);
+      if (doc?.highlights?.length) {
+        doc.highlights.forEach(h => {
+          if (h.text && h.text.length > 2) {
+            html = html.replace(new RegExp('('+escapeRegExp(h.text)+')', 'gi'), '<span class="saved-hl">$1</span>');
+          }
+        });
+      }
+      if (query) html = html.replace(new RegExp('('+escapeRegExp(query)+')','gi'), '<mark>$1</mark>');
+      reader.innerHTML = html;
+      if (query) collectMatches();
+    }
+
+    function collectMatches() {
+      searchMatches = Array.from(reader.querySelectorAll('mark'));
+      currentMatch = searchMatches.length ? 0 : -1;
+      highlightCurrent();
+      statusEl.textContent = searchMatches.length ? searchMatches.length+' matches' : 'No matches';
+    }
+    function highlightCurrent() {
+      searchMatches.forEach((m,i)=> m.classList.toggle('current', i===currentMatch));
+      if (currentMatch>=0 && searchMatches[currentMatch]) {
+        searchMatches[currentMatch].scrollIntoView({behavior:'smooth', block:'center'});
+      }
+    }
+    $('searchNext').onclick = () => {
+      if (!searchMatches.length) return;
+      currentMatch = (currentMatch+1) % searchMatches.length;
+      highlightCurrent();
+    };
+    $('searchPrev').onclick = () => {
+      if (!searchMatches.length) return;
+      currentMatch = (currentMatch-1+searchMatches.length) % searchMatches.length;
+      highlightCurrent();
+    };
+    searchInput.addEventListener('input', () => renderText(currentText, searchInput.value.trim()));
+    function clearSearch() {
+      searchInput.value='';
+      renderText(currentText);
+      searchMatches=[]; currentMatch=-1;
+      statusEl.textContent = library.find(d=>d.id===currentId)?.name || 'Ready';
+    }
+    $('clearSearch').onclick = clearSearch;
+    $('clearSearchMenu').onclick = () => { clearSearch(); closeMore(); };
+
+    $('highlightBtn').onclick = async () => {
+      closeMore();
+      if (!currentId) return;
+      const sel = window.getSelection();
+      const text = sel.toString().trim();
+      if (!text || text.length < 2) { alert('Select some text first, then tap Highlight'); return; }
+      const doc = library.find(d => d.id === currentId);
+      if (!doc) return;
+      if (!doc.highlights) doc.highlights = [];
+      if (!doc.highlights.some(h => h.text === text)) {
+        doc.highlights.push({ text, time: new Date().toLocaleString() });
+        await idbPut(doc);
+        alert('Highlight saved!');
+        renderText(currentText, searchInput.value.trim());
+      } else alert('Already highlighted');
+      sel.removeAllRanges();
+    };
+
+    $('highlightsListBtn').onclick = () => {
+      closeMore();
+      if (!currentId) return;
+      const doc = library.find(d => d.id === currentId);
+      const list = $('hlList');
+      list.innerHTML = '';
+      if (!doc?.highlights?.length) {
+        list.innerHTML = '<div style="color:var(--muted)">No highlights yet.</div>';
+      } else {
+        doc.highlights.forEach((h, i) => {
+          const div = document.createElement('div');
+          div.className = 'hl-item';
+          div.innerHTML = '<div>'+escapeHtml(h.text.slice(0,120))+(h.text.length>120?'…':'')+'</div><small style="color:var(--muted)">'+(h.time||'')+'</small>';
+          div.onclick = () => {
+            searchInput.value = h.text.slice(0, 40);
+            renderText(currentText, h.text.slice(0, 40));
+            $('highlightsModal').classList.remove('show');
+          };
+          div.oncontextmenu = async (e) => {
+            e.preventDefault();
+            if (confirm('Delete this highlight?')) {
+              doc.highlights.splice(i, 1);
+              await idbPut(doc);
+              $('highlightsListBtn').click();
+              renderText(currentText, searchInput.value.trim());
+            }
+          };
+          list.appendChild(div);
+        });
+      }
+      $('highlightsModal').classList.add('show');
+    };
+    $('hlClose').onclick = () => $('highlightsModal').classList.remove('show');
+
+    let scrollTimer;
+    readerWrapper.addEventListener('scroll', () => {
+      if (!currentId || pageMode) return;
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(async () => {
+        const doc = library.find(d=>d.id===currentId);
+        if (doc){
+          doc.lastPosition = readerWrapper.scrollTop;
+          const el = readerWrapper;
+          if (el.scrollHeight > el.clientHeight) {
+            doc.progressPct = Math.min(100, Math.round(el.scrollTop/(el.scrollHeight-el.clientHeight)*100));
+          }
+          await idbPut(doc);
+          renderLibrary();
+        }
+        updateProgress();
+      }, 280);
+    });
+    function updateProgress() {
+      if (pageMode) {
+        const pct = pages.length ? Math.round(((currentPageIdx+1)/pages.length)*100) : 0;
+        progressPercent.textContent = pct+'%';
+        const doc = library.find(d=>d.id===currentId);
+        if (doc) { doc.progressPct = pct; idbPut(doc); }
+        return;
+      }
+      const el = readerWrapper;
+      if (el.scrollHeight<=el.clientHeight){ progressPercent.textContent='100%'; return; }
+      progressPercent.textContent = Math.min(100, Math.round(el.scrollTop/(el.scrollHeight-el.clientHeight)*100))+'%';
+    }
+    function updateStats() {
+      if (!currentText){ $('stats').textContent=''; return; }
+      const words = currentText.trim().split(/\s+/).filter(Boolean).length;
+      $('stats').textContent = words+' words · ~'+Math.max(1, Math.round(words/200))+' min';
+    }
+
+    $('bookmarkBtn').onclick = async () => {
+      closeMore();
+      if (!currentId) return;
+      const doc = library.find(d=>d.id===currentId);
+      if (!doc) return;
+      if (!doc.bookmarks) doc.bookmarks = [];
+      doc.bookmarks.push({ pos: readerWrapper.scrollTop, page: currentPageIdx, time: new Date().toLocaleString() });
+      await idbPut(doc);
+      alert('Bookmark saved ('+doc.bookmarks.length+')');
+    };
+
+    $('notesBtn').onclick = () => {
+      closeMore();
+      if (!currentId) return;
+      $('notesText').value = library.find(d=>d.id===currentId)?.notes || '';
+      $('notesModal').classList.add('show');
+    };
+    $('notesCancel').onclick = () => $('notesModal').classList.remove('show');
+    $('notesSave').onclick = async () => {
+      const doc = library.find(d=>d.id===currentId);
+      if (doc){ doc.notes = $('notesText').value; await idbPut(doc); }
+      $('notesModal').classList.remove('show');
+    };
+
+    $('copyBtn').onclick = () => {
+      closeMore();
+      if (!currentText) return;
+      navigator.clipboard.writeText(currentText).then(()=>alert('Copied!')).catch(()=>alert('Copy failed'));
+    };
+
+    $('exportBtn').onclick = () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(library,null,2)],{type:'application/json'}));
+      a.download = 'pdf-library-backup.json';
+      a.click();
+    };
+    $('importBtn').onclick = () => $('importFile').click();
+    $('importFile').onchange = async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const docs = JSON.parse(await file.text());
+        for (const d of docs) {
+          if (!d.highlights) d.highlights = [];
+          if (!d.folder) d.folder = '';
+          if (d.progressPct == null) d.progressPct = 0;
+          await idbPut(d);
+        }
+        library = await idbGetAll();
+        sortLibrary(); renderFolders(); renderLibrary();
+        alert('Imported '+docs.length+' documents');
+      } catch(err){ alert('Import failed'); }
+      e.target.value = '';
+    };
+
+    function stopTTS() {
+      speechSynthesis.cancel();
+      isSpeaking = false;
+      clearInterval(autoScrollInterval);
+      $('ttsBar').classList.remove('active');
+    }
+    $('ttsPlay').onclick = () => {
+      if (!currentText) return;
+      stopTTS();
+      let chunk = pageMode && pages[currentPageIdx] ? pages[currentPageIdx].content : currentText;
+      const sel = window.getSelection()?.toString().trim();
+      if (sel && sel.length > 5) chunk = sel;
+      chunk = chunk.slice(0, 15000);
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.rate = 0.92;
+      u.onstart = () => {
+        isSpeaking = true;
+        $('ttsBar').classList.add('active');
+        $('ttsStatus').textContent = 'Speaking…';
+      };
+      u.onend = u.onerror = () => stopTTS();
+      speechSynthesis.speak(u);
+      if (!pageMode && !sel) {
+        autoScrollInterval = setInterval(() => { if(isSpeaking) readerWrapper.scrollBy(0, 1); }, 110);
+      }
+    };
+    $('ttsStop').onclick = stopTTS;
+    $('ttsStopMenu').onclick = () => { stopTTS(); closeMore(); };
+    $('ttsPauseBtn').onclick = () => {
+      if (speechSynthesis.speaking) { speechSynthesis.pause(); $('ttsStatus').textContent = 'Paused'; }
+    };
+    $('ttsResumeBtn').onclick = () => { speechSynthesis.resume(); $('ttsStatus').textContent = 'Speaking…'; };
+
+    if ('serviceWorker' in navigator) {
+      const swCode = `const CACHE='pdf-lib-v2';self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['./'])));self.skipWaiting();});self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));});`;
+      navigator.serviceWorker.register(URL.createObjectURL(new Blob([swCode],{type:'application/javascript'}))).catch(()=>{});
+    }
+
+    loadLibrary().catch(()=> statusEl.textContent='Ready');
+  </script>
+</body>
+</html>
