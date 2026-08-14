@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>PDF Library – Free Reader</title>
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs" type="module"></script>
+  <title>PDF Library</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -18,7 +17,7 @@
       --reader-max: 720px;
       --line-height: 1.7;
       --font-size: 17px;
-      --margin: 24px;
+      --margin: 20px;
     }
     [data-theme="dark"] {
       --bg: #0f172a;
@@ -31,7 +30,7 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
       height: 100dvh;
@@ -42,27 +41,30 @@
     header {
       background: var(--card);
       border-bottom: 1px solid var(--border);
-      padding: 8px 12px;
+      padding: 10px 12px;
       display: flex;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
-      z-index: 30;
+      z-index: 50;
     }
-    header h1 { font-size: 1.1rem; font-weight: 700; white-space: nowrap; }
-    .controls { display: flex; gap: 6px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+    header h1 { font-size: 1.15rem; font-weight: 700; }
+    .controls { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
     button {
       background: var(--primary);
       color: white;
       border: none;
-      padding: 6px 10px;
+      padding: 8px 12px;
       border-radius: 8px;
-      font-size: 0.85rem;
+      font-size: 0.9rem;
       cursor: pointer;
-      white-space: nowrap;
+      min-height: 40px;
     }
-    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
     .main { display: flex; flex: 1; overflow: hidden; position: relative; }
     .sidebar {
       width: 280px;
@@ -70,40 +72,39 @@
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      overflow: hidden;
-      transition: transform 0.25s ease;
+      z-index: 40;
     }
     .sidebar-header { padding: 12px; border-bottom: 1px solid var(--border); }
     .upload-zone {
       border: 2px dashed var(--border);
       border-radius: 10px;
-      padding: 14px;
+      padding: 18px 12px;
       text-align: center;
       cursor: pointer;
-      font-size: 0.88rem;
+      font-size: 0.95rem;
       color: var(--muted);
+      user-select: none;
     }
-    .upload-zone:hover, .upload-zone.dragover {
+    .upload-zone:active, .upload-zone.dragover {
       border-color: var(--primary);
-      background: color-mix(in srgb, var(--primary) 8%, transparent);
+      background: rgba(37, 99, 235, 0.08);
     }
     #fileInput { display: none; }
     .library-list { flex: 1; overflow-y: auto; padding: 8px; }
     .doc-item {
-      padding: 10px 12px;
+      padding: 12px;
       border-radius: 8px;
       cursor: pointer;
       margin-bottom: 4px;
-      font-size: 0.9rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 8px;
+      font-size: 0.95rem;
     }
-    .doc-item:hover, .doc-item.active { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+    .doc-item:active, .doc-item.active { background: rgba(37, 99, 235, 0.12); }
     .doc-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .doc-item .delete { opacity: 0.5; font-size: 0.85rem; flex-shrink: 0; }
-    .doc-item .delete:hover { opacity: 1; color: #ef4444; }
+    .doc-item .delete { opacity: 0.6; padding: 4px 8px; }
     .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
     .toolbar {
       padding: 8px 12px;
@@ -116,15 +117,15 @@
     }
     #searchInput {
       flex: 1;
-      min-width: 140px;
-      padding: 7px 11px;
+      min-width: 120px;
+      padding: 10px 12px;
       border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--bg);
       color: var(--text);
-      font-size: 0.9rem;
+      font-size: 1rem;
     }
-    .reader-wrapper { flex: 1; overflow-y: auto; position: relative; }
+    .reader-wrapper { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .reader {
       max-width: var(--reader-max);
       margin: 0 auto;
@@ -134,54 +135,47 @@
       white-space: pre-wrap;
       word-wrap: break-word;
     }
-    .reader mark {
-      background: var(--highlight);
-      color: inherit;
-      padding: 0 2px;
-      border-radius: 2px;
-    }
+    .reader mark { background: var(--highlight); padding: 0 2px; border-radius: 2px; }
     .page-marker {
       display: block;
-      margin: 2.2em 0 1em;
-      padding: 6px 0;
-      font-size: 0.78rem;
+      margin: 2em 0 1em;
+      padding-bottom: 6px;
+      font-size: 0.8rem;
       font-weight: 600;
       color: var(--muted);
       border-bottom: 1px solid var(--border);
-      letter-spacing: 0.03em;
     }
     .status-bar {
-      padding: 6px 14px;
-      font-size: 0.8rem;
+      padding: 8px 14px;
+      font-size: 0.85rem;
       color: var(--muted);
       border-top: 1px solid var(--border);
       background: var(--card);
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      gap: 10px;
     }
-    .progress-bar-outer { height: 3px; background: var(--border); width: 100%; }
+    .progress-bar-outer { height: 3px; background: var(--border); }
     .progress-bar-outer > div { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s; }
     body.focus-mode header,
     body.focus-mode .sidebar,
     body.focus-mode .toolbar { display: none !important; }
-    body.focus-mode .status-bar { opacity: 0.7; }
     .menu-btn { display: none; }
     @media (max-width: 768px) {
       .sidebar {
-        position: absolute; left: 0; top: 0; bottom: 0; z-index: 40;
+        position: absolute;
+        left: 0; top: 0; bottom: 0;
         transform: translateX(-100%);
-        box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+        transition: transform 0.25s ease;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.15);
       }
       .sidebar.open { transform: translateX(0); }
       .menu-btn { display: inline-flex !important; }
     }
-    .empty { text-align: center; padding: 80px 20px; color: var(--muted); line-height: 1.6; }
+    .empty { text-align: center; padding: 60px 20px; color: var(--muted); line-height: 1.6; }
     .settings-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.85rem; }
     select, input[type="range"] {
       background: var(--bg); color: var(--text);
-      border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+      border: 1px solid var(--border); border-radius: 6px; padding: 6px;
     }
   </style>
 </head>
@@ -206,8 +200,8 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="upload-zone" id="uploadZone">
-          📄 Drop PDF here<br>or click to upload
-          <div style="font-size:0.75rem;margin-top:4px;opacity:0.8">Multiple files supported</div>
+          📄 Tap here to upload PDF<br>
+          <small>Multiple files supported</small>
         </div>
         <input type="file" id="fileInput" accept="application/pdf" multiple />
       </div>
@@ -216,18 +210,17 @@
 
     <div class="content-area">
       <div class="toolbar">
-        <input type="text" id="searchInput" placeholder="Search in document…" />
+        <input type="text" id="searchInput" placeholder="Search…" />
         <button class="secondary" id="clearSearch">Clear</button>
         <button class="secondary" id="downloadTxt">⬇ TXT</button>
         <div class="settings-row">
           <label>Space <input type="range" id="lineHeight" min="1.3" max="2.2" step="0.1" value="1.7" style="width:70px"></label>
-          <label>Margin <input type="range" id="marginRange" min="12" max="48" step="4" value="24" style="width:70px"></label>
+          <label>Margin <input type="range" id="marginRange" min="12" max="40" step="4" value="20" style="width:70px"></label>
           <select id="highlightColor">
             <option value="#fde047">Yellow</option>
             <option value="#86efac">Green</option>
             <option value="#93c5fd">Blue</option>
             <option value="#f9a8d4">Pink</option>
-            <option value="#fdba74">Orange</option>
           </select>
         </div>
       </div>
@@ -235,9 +228,8 @@
       <div class="reader-wrapper" id="readerWrapper">
         <div class="reader" id="reader">
           <div class="empty">
-            Upload a PDF to start reading.<br>
-            Everything stays on your device.<br><br>
-            <small>Using IndexedDB + Password support</small>
+            Tap the left menu (☰) then upload a PDF.<br><br>
+            Everything stays on your device.
           </div>
         </div>
       </div>
@@ -255,13 +247,12 @@
 
     // ========== IndexedDB ==========
     const DB_NAME = 'PDFLibraryDB';
-    const DB_VERSION = 1;
     const STORE = 'documents';
 
     function openDB() {
       return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = (e) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = e => {
           const db = e.target.result;
           if (!db.objectStoreNames.contains(STORE)) {
             db.createObjectStore(STORE, { keyPath: 'id' });
@@ -308,7 +299,6 @@
     let currentText = '';
     let fontSize = parseInt(localStorage.getItem('fontSize') || '17');
     let isSpeaking = false;
-    let utterance = null;
     let autoScrollInterval = null;
 
     // ========== DOM ==========
@@ -323,17 +313,17 @@
     const fileInput = document.getElementById('fileInput');
     const sidebar = document.getElementById('sidebar');
 
-    // ========== Theme & Font ==========
-    function applyTheme() {
-      const theme = localStorage.getItem('theme') || 'light';
-      document.documentElement.setAttribute('data-theme', theme);
-    }
-    applyTheme();
+    // ========== Basic Controls (always work) ==========
+    document.getElementById('menuBtn').onclick = () => {
+      sidebar.classList.toggle('open');
+    };
+
     document.getElementById('themeBtn').onclick = () => {
       const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       localStorage.setItem('theme', next);
-      applyTheme();
+      document.documentElement.setAttribute('data-theme', next);
     };
+    document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
 
     function applyFont() {
       document.documentElement.style.setProperty('--font-size', fontSize + 'px');
@@ -343,13 +333,13 @@
     document.getElementById('fontUp').onclick = () => { fontSize = Math.min(26, fontSize + 1); applyFont(); };
     document.getElementById('fontDown').onclick = () => { fontSize = Math.max(13, fontSize - 1); applyFont(); };
 
-    document.getElementById('lineHeight').oninput = (e) => {
+    document.getElementById('lineHeight').oninput = e => {
       document.documentElement.style.setProperty('--line-height', e.target.value);
     };
-    document.getElementById('marginRange').oninput = (e) => {
+    document.getElementById('marginRange').oninput = e => {
       document.documentElement.style.setProperty('--margin', e.target.value + 'px');
     };
-    document.getElementById('highlightColor').onchange = (e) => {
+    document.getElementById('highlightColor').onchange = e => {
       document.documentElement.style.setProperty('--highlight', e.target.value);
     };
 
@@ -359,62 +349,20 @@
         document.body.classList.contains('focus-mode') ? 'Exit Focus' : 'Focus';
     };
 
-    document.getElementById('menuBtn').onclick = () => sidebar.classList.toggle('open');
-
-    // ========== Library ==========
-    async function loadLibrary() {
-      const old = localStorage.getItem('pdfLibrary');
-      if (old) {
-        try {
-          const oldDocs = JSON.parse(old);
-          for (const doc of oldDocs) await idbPut(doc);
-          localStorage.removeItem('pdfLibrary');
-        } catch (e) {}
-      }
-      library = await idbGetAll();
-      library.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
-      renderLibrary();
-      if (library.length > 0) openDocument(library[0].id);
-    }
-
-    function renderLibrary() {
-      libraryList.innerHTML = '';
-      if (library.length === 0) {
-        libraryList.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:0.9rem;">No documents yet</div>';
-        return;
-      }
-      library.forEach(doc => {
-        const div = document.createElement('div');
-        div.className = 'doc-item' + (doc.id === currentId ? ' active' : '');
-        div.innerHTML = `
-          <span class="name" title="\( {doc.name}"> \){doc.name}</span>
-          <span class="delete" data-id="${doc.id}">✕</span>
-        `;
-        div.onclick = async (e) => {
-          if (e.target.classList.contains('delete')) {
-            if (confirm('Delete this document permanently?')) {
-              await idbDelete(doc.id);
-              library = library.filter(d => d.id !== doc.id);
-              if (currentId === doc.id) {
-                currentId = null;
-                currentText = '';
-                reader.innerHTML = '<div class="empty">Document deleted.</div>';
-                progressPercent.textContent = '0% read';
-              }
-              renderLibrary();
-            }
-            return;
-          }
-          openDocument(doc.id);
-          sidebar.classList.remove('open');
-        };
-        libraryList.appendChild(div);
-      });
-    }
+    // ========== Upload ==========
+    uploadZone.onclick = () => fileInput.click();
+    uploadZone.ondragover = e => { e.preventDefault(); uploadZone.classList.add('dragover'); };
+    uploadZone.ondragleave = () => uploadZone.classList.remove('dragover');
+    uploadZone.ondrop = e => {
+      e.preventDefault();
+      uploadZone.classList.remove('dragover');
+      handleFiles(e.dataTransfer.files);
+    };
+    fileInput.onchange = e => handleFiles(e.target.files);
 
     // ========== Clean text ==========
     function cleanPdfText(items) {
-      if (!items?.length) return '';
+      if (!items || !items.length) return '';
       const sorted = [...items].sort((a, b) => {
         const yA = a.transform[5], yB = b.transform[5];
         if (Math.abs(yA - yB) > 6) return yB - yA;
@@ -423,7 +371,7 @@
       let text = '', lastY = null, lastX = 0;
       for (const item of sorted) {
         const str = item.str;
-        if (!str?.trim()) continue;
+        if (!str || !str.trim()) continue;
         const y = item.transform[5];
         const x = item.transform[4];
         if (lastY !== null && Math.abs(y - lastY) > 9) text += '\n\n';
@@ -435,22 +383,18 @@
       return text.replace(/\n{3,}/g, '\n\n').trim();
     }
 
-    // ========== Extraction with Password Support ==========
+    // ========== Extraction with Password ==========
     async function extractTextFromPDF(file, onProgress) {
       const arrayBuffer = await file.arrayBuffer();
-
       const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
 
       loadingTask.onPassword = (updateCallback, reason) => {
-        const message = reason === 1
-          ? "This PDF is password protected.\nPlease enter the password:"
-          : "Incorrect password. Please try again:";
-        const password = prompt(message);
-        if (password !== null && password !== "") {
-          updateCallback(password);
-        } else {
-          throw new Error("Password required");
-        }
+        const msg = reason === 1
+          ? 'This PDF is password protected.\nEnter the password:'
+          : 'Wrong password. Try again:';
+        const password = prompt(msg);
+        if (password) updateCallback(password);
+        else throw new Error('Password required');
       };
 
       const pdf = await loadingTask.promise;
@@ -469,7 +413,7 @@
         } catch (e) {}
 
         if (pageText.replace(/\s/g, '').length < 45) {
-          const scale = 2.0;
+          const scale = 1.8;
           const viewport = page.getViewport({ scale });
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width;
@@ -486,22 +430,12 @@
       return fullText;
     }
 
-    // ========== Upload ==========
-    uploadZone.onclick = () => fileInput.click();
-    uploadZone.ondragover = e => { e.preventDefault(); uploadZone.classList.add('dragover'); };
-    uploadZone.ondragleave = () => uploadZone.classList.remove('dragover');
-    uploadZone.ondrop = e => {
-      e.preventDefault();
-      uploadZone.classList.remove('dragover');
-      handleFiles(e.dataTransfer.files);
-    };
-    fileInput.onchange = e => handleFiles(e.target.files);
-
     async function handleFiles(files) {
       for (const file of files) {
         if (file.type !== 'application/pdf') continue;
-        statusEl.textContent = `Processing ${file.name}…`;
+        statusEl.textContent = 'Processing ' + file.name + '…';
         extractProgress.style.width = '0%';
+        sidebar.classList.remove('open');
 
         try {
           const text = await extractTextFromPDF(file, (p, msg) => {
@@ -509,7 +443,7 @@
             statusEl.textContent = msg;
           });
 
-          const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+          const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
           const doc = {
             id,
             name: file.name.replace(/\.pdf$/i, ''),
@@ -521,18 +455,65 @@
           library.unshift(doc);
           renderLibrary();
           openDocument(id);
-          statusEl.textContent = `Loaded: ${doc.name}`;
+          statusEl.textContent = 'Loaded: ' + doc.name;
         } catch (err) {
           console.error(err);
-          statusEl.textContent = 'Error processing PDF';
-          alert('Failed to process this PDF.\n' + (err.message || err));
+          statusEl.textContent = 'Error';
+          alert('Failed to process PDF.\n' + (err.message || err));
         }
         extractProgress.style.width = '0%';
       }
       fileInput.value = '';
     }
 
-    // ========== Open & Render ==========
+    // ========== Library ==========
+    async function loadLibrary() {
+      try {
+        const old = localStorage.getItem('pdfLibrary');
+        if (old) {
+          const oldDocs = JSON.parse(old);
+          for (const doc of oldDocs) await idbPut(doc);
+          localStorage.removeItem('pdfLibrary');
+        }
+      } catch (e) {}
+
+      library = await idbGetAll();
+      library.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+      renderLibrary();
+      if (library.length > 0) openDocument(library[0].id);
+    }
+
+    function renderLibrary() {
+      libraryList.innerHTML = '';
+      if (library.length === 0) {
+        libraryList.innerHTML = '<div style="padding:16px;color:var(--muted)">No documents yet</div>';
+        return;
+      }
+      library.forEach(doc => {
+        const div = document.createElement('div');
+        div.className = 'doc-item' + (doc.id === currentId ? ' active' : '');
+        div.innerHTML = `<span class="name">${doc.name}</span><span class="delete">✕</span>`;
+        div.onclick = async (e) => {
+          if (e.target.classList.contains('delete')) {
+            if (confirm('Delete this document?')) {
+              await idbDelete(doc.id);
+              library = library.filter(d => d.id !== doc.id);
+              if (currentId === doc.id) {
+                currentId = null;
+                currentText = '';
+                reader.innerHTML = '<div class="empty">Document deleted.</div>';
+              }
+              renderLibrary();
+            }
+            return;
+          }
+          openDocument(doc.id);
+          sidebar.classList.remove('open');
+        };
+        libraryList.appendChild(div);
+      });
+    }
+
     function openDocument(id) {
       const doc = library.find(d => d.id === id);
       if (!doc) return;
@@ -542,14 +523,14 @@
       setTimeout(() => {
         readerWrapper.scrollTop = doc.lastPosition || 0;
         updateProgress();
-      }, 60);
+      }, 50);
       renderLibrary();
       statusEl.textContent = doc.name;
     }
 
     function renderText(text, query = '') {
       if (!text) {
-        reader.innerHTML = '<div class="empty">No text extracted.</div>';
+        reader.innerHTML = '<div class="empty">No text.</div>';
         return;
       }
       let html = text
@@ -560,4 +541,37 @@
 
       if (query) {
         const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new 
+        html = html.replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
+      }
+      reader.innerHTML = html;
+    }
+
+    let scrollTimer;
+    readerWrapper.addEventListener('scroll', () => {
+      if (!currentId) return;
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(async () => {
+        const doc = library.find(d => d.id === currentId);
+        if (doc) {
+          doc.lastPosition = readerWrapper.scrollTop;
+          await idbPut(doc);
+        }
+        updateProgress();
+      }, 300);
+    });
+
+    function updateProgress() {
+      const el = readerWrapper;
+      if (el.scrollHeight <= el.clientHeight) {
+        progressPercent.textContent = '100%';
+        return;
+      }
+      const pct = Math.min(100, Math.round((el.scrollTop / (el.scrollHeight - el.clientHeight)) * 100));
+      progressPercent.textContent = pct + '% read';
+    }
+
+    searchInput.addEventListener('input', () => {
+      renderText(currentText, searchInput.value.trim());
+    });
+    document.getElementById('clearSearch').onclick = () => {
+ 
